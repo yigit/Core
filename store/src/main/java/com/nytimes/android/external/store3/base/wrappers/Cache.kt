@@ -29,7 +29,12 @@ internal class MemoryCacheStore<V, K>(
                 }
             }.await()
         } catch (e: Exception) {
-            memCache.invalidate(key)
+            try {
+                TmpThreadBlock.lock()
+                memCache.invalidate(key)
+            } finally {
+                TmpThreadBlock.unlock()
+            }
             throw e
         }
     }
