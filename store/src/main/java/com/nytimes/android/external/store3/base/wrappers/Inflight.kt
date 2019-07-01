@@ -11,8 +11,6 @@ internal class InflightStore<V, K>(
         private val wrappedStore: Store<V, K>,
         memoryPolicy: MemoryPolicy?
 ) : Store<V, K> {
-
-    // TODO is one cache enough? Or is it better to use a cache for get and another for fresh?
     private val inFlightRequests = StoreCache.build(
             loader = { key: K ->
                 wrappedStore.get(key)
