@@ -57,5 +57,4 @@ internal class StoreCacheImpl<K, V>(
     override suspend fun getIfPresent(key: K): V? {
         return realCache.getIfPresent(key)?.cachedValue()
     }
-
 }

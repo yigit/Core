@@ -4,8 +4,6 @@ import com.nytimes.android.external.store3.base.BasePersister
 import com.nytimes.android.external.store3.base.Clearable
 import com.nytimes.android.external.store3.base.RecordProvider
 import com.nytimes.android.external.store3.base.RecordState.STALE
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 object StoreUtil {
 
