@@ -1,6 +1,6 @@
 package com.nytimes.suspendCache
 
-import com.com.nytimes.suspendCache.StoreCacheImpl
+import com.com.nytimes.suspendCache.RealStoreCache
 import com.nytimes.android.external.cache3.Ticker
 import com.nytimes.android.external.store3.base.impl.MemoryPolicy
 import kotlinx.coroutines.CompletableDeferred
@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 @Suppress("UsePropertyAccessSyntax") // for isTrue() / isFalse()
 @ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
-class StoreCacheImplTest {
+class RealStoreCacheTest {
     private val testScope = TestCoroutineScope()
     private val loader = TestLoader()
     private val ticker = object : Ticker() {
@@ -131,14 +131,14 @@ class StoreCacheImplTest {
         val cache = createCache()
         cache.put("foo", "bar")
         loader.enqueueResponse("foo", "bar_updated")
-        assertThat(cache.getFresh("foo")).isEqualTo("bar_updated")
+        assertThat(cache.fresh("foo")).isEqualTo("bar_updated")
         assertThat(cache.get("foo")).isEqualTo("bar_updated")
     }
 
     private fun createCache(
             memoryPolicy: MemoryPolicy = MemoryPolicy.builder().build()
-    ): StoreCacheImpl<String, String> {
-        return StoreCacheImpl(
+    ): RealStoreCache<String, String> {
+        return RealStoreCache(
                 loader = loader::invoke,
                 ticker = ticker,
                 memoryPolicy = memoryPolicy

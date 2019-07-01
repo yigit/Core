@@ -11,7 +11,7 @@ internal class InflightStore<V, K>(
         private val wrappedStore: Store<V, K>,
         memoryPolicy: MemoryPolicy?
 ) : Store<V, K> {
-    private val inFlightRequests = StoreCache.build(
+    private val inFlightRequests = StoreCache.from(
             loader = { key: K ->
                 wrappedStore.get(key)
             },
@@ -28,7 +28,7 @@ internal class InflightStore<V, K>(
 
     override suspend fun fresh(key: K): V {
         return try {
-            inFlightRequests.getFresh(key)
+            inFlightRequests.fresh(key)
         } finally {
             inFlightRequests.invalidate(key)
         }

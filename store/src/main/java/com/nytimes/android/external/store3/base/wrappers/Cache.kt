@@ -16,7 +16,7 @@ internal class MemoryCacheStore<V, K>(
         memoryPolicy: MemoryPolicy?
 ) : Store<V, K> {
 
-    private val memCache = StoreCache.build(
+    private val memCache = StoreCache.from(
             loader = { key: K ->
                 wrappedStore.get(key)
             },
@@ -25,7 +25,7 @@ internal class MemoryCacheStore<V, K>(
 
     override suspend fun get(key: K): V = memCache.get(key)
 
-    override suspend fun fresh(key: K): V = memCache.getFresh(key)
+    override suspend fun fresh(key: K): V = memCache.fresh(key)
 
     @FlowPreview
     override fun stream(): Flow<Pair<K, V>> = wrappedStore.stream()

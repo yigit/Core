@@ -5,7 +5,7 @@ import com.nytimes.android.external.cache3.CacheLoader
 import com.nytimes.android.external.cache3.Ticker
 import com.nytimes.android.external.store3.base.impl.MemoryPolicy
 
-internal class StoreCacheImpl<K, V>(
+internal class RealStoreCache<K, V>(
         private val loader: suspend (K) -> V,
         private val memoryPolicy: MemoryPolicy,
         ticker: Ticker = Ticker.systemTicker()
@@ -31,7 +31,7 @@ internal class StoreCacheImpl<K, V>(
                 }
             })
 
-    override suspend fun getFresh(key: K): V {
+    override suspend fun fresh(key: K): V {
         return realCache.get(key)!!.freshValue()
     }
 
