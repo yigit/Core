@@ -25,19 +25,25 @@ internal class StoreCacheImpl<K, V>(
             }
             .build(object : CacheLoader<K, StoreRecord<K, V>>() {
                 override fun load(key: K): StoreRecord<K, V>? {
-                    return StoreRecordLoader(key, loader)
+                    return StoreRecord(
+                            key = key,
+                            loader = loader)
                 }
             })
 
+    override suspend fun getFresh(key: K): V {
+        return realCache.get(key)!!.freshValue()
+    }
+
     override suspend fun get(key: K): V {
-        return realCache.get(key) {
-            @Suppress("UNCHECKED_CAST")
-            (StoreRecordLoader(key, loader))
-        }.value()
+        return realCache.get(key)!!.value()
     }
 
     override suspend fun put(key: K, value: V) {
-        realCache.put(key, StoreRecordPrecomputed(value))
+        realCache.put(key, StoreRecord(
+                key = key,
+                loader = loader,
+                precomputedValue = value))
     }
 
     override suspend fun invalidate(key: K) {

@@ -17,6 +17,7 @@ import org.junit.runners.JUnit4
 import java.util.*
 import java.util.concurrent.TimeUnit
 
+@Suppress("UsePropertyAccessSyntax") // for isTrue() / isFalse()
 @ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
 class StoreCacheImplTest {
@@ -125,6 +126,15 @@ class StoreCacheImplTest {
         assertThat(cache.get("foo")).isEqualTo("bar_updated")
     }
 
+    @Test
+    fun fresh() = testScope.runBlockingTest {
+        val cache = createCache()
+        cache.put("foo", "bar")
+        loader.enqueueResponse("foo", "bar_updated")
+        assertThat(cache.getFresh("foo")).isEqualTo("bar_updated")
+        assertThat(cache.get("foo")).isEqualTo("bar_updated")
+    }
+
     private fun createCache(
             memoryPolicy: MemoryPolicy = MemoryPolicy.builder().build()
     ): StoreCacheImpl<String, String> {
@@ -136,7 +146,7 @@ class StoreCacheImplTest {
     }
 }
 
-private class TestLoader() {
+private class TestLoader {
     private val enqueued = mutableMapOf<String, LinkedList<Deferred<String>>>()
 
     fun enqueueResponse(key: String, value: String) {
@@ -150,7 +160,7 @@ private class TestLoader() {
     }
 
     suspend fun invoke(key: String): String {
-        val response = enqueued.get(key)?.pop() ?: throw AssertionError("nothing enqueued")
+        val response = enqueued[key]?.pop() ?: throw AssertionError("nothing enqueued")
         return response.await()
     }
 }

@@ -10,31 +10,45 @@ import kotlinx.coroutines.sync.withLock
  *  * maybe fresh?
  *  * deduplication
  */
-interface StoreRecord<K, V> {
-    suspend fun value(): V
-    suspend fun cachedValue(): V?
-}
-
-internal class StoreRecordPrecomputed<K, V>(
-        private val value: V
-) : StoreRecord<K, V> {
-    override suspend fun cachedValue(): V? = value
-
-    override suspend fun value(): V = value
-
-}
-
-internal class StoreRecordLoader<K, V>(
+internal class StoreRecord<K, V>(
         private val key: K,
+        precomputedValue : V? = null,
         private val loader: Loader<K, V>
-) : StoreRecord<K, V> {
+) {
     private var inFlight = Mutex(false)
     @Volatile
-    private var _value: V? = null
+    private var _value: V? = precomputedValue
 
-    override suspend fun cachedValue(): V? = _value
+    fun cachedValue(): V? = _value
 
-    override suspend fun value(): V {
+    suspend fun freshValue(): V {
+        // first try to lock inflight request so that we can avoid get() from making a call
+        // but if we failed to lock, just request w/o a lock.
+        // we want fresh to be really fresh and we don't want it to wait for another request
+        if (inFlight.tryLock()) {
+            try {
+                return internalDoLoadAndCache()
+            } finally {
+                inFlight.unlock()
+            }
+        } else {
+            return inFlight.withLock {
+                return internalDoLoadAndCache()
+            }
+        }
+    }
+
+    private inline suspend fun internalDoLoadAndCache(): V {
+        return runCatching {
+            loader(key)
+        }.also {
+            it.getOrNull()?.let {
+                _value = it
+            }
+        }.getOrThrow()
+    }
+
+    suspend fun value(): V {
         val cached = _value
         if (cached != null) {
             return cached
@@ -42,14 +56,7 @@ internal class StoreRecordLoader<K, V>(
         return inFlight.withLock {
             _value?.let {
                 return it
-            }
-            runCatching {
-                loader(key)
-            }
-        }.also {
-            it.getOrNull()?.let {
-                _value = it
-            }
-        }.getOrThrow()
+            } ?: internalDoLoadAndCache()
+        }
     }
 }

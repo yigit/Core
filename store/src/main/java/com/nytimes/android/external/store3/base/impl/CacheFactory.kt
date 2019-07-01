@@ -8,18 +8,23 @@ import java.util.concurrent.TimeUnit
 
 object CacheFactory {
 
-    internal fun <Key, Parsed> createCache(memoryPolicy: MemoryPolicy?, cacheLoader: CacheLoader<Key, Parsed>): LoadingCache<Key, Parsed> {
-        return createBaseCache(memoryPolicy, cacheLoader)
+    internal fun <Key, Parsed> createCache(
+            memoryPolicy: MemoryPolicy?, cacheLoader: CacheLoader<Key, Parsed>): LoadingCache<Key, Parsed> {
+        return createBaseCache(
+                memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy,
+                cacheLoader = cacheLoader)
     }
 
-    internal fun <Key, Parsed> createInflighter(memoryPolicy: MemoryPolicy?): Cache<Key, Parsed> {
-        return createBaseInFlighter(memoryPolicy)
+    internal fun <Key, Parsed> createInflighter(
+            memoryPolicy: MemoryPolicy?
+    ): Cache<Key, Parsed> {
+        return createBaseInFlighter(
+                memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy)
     }
 
-    private fun <Key, Value> createBaseInFlighter(memoryPolicy: MemoryPolicy?): Cache<Key, Value> {
-        val expireAfterToSeconds = memoryPolicy?.expireAfterTimeUnit?.toSeconds(memoryPolicy.expireAfterWrite)
-                ?: StoreDefaults.cacheTTLTimeUnit
-                        .toSeconds(StoreDefaults.cacheTTL)
+    private fun <Key, Value> createBaseInFlighter(memoryPolicy: MemoryPolicy): Cache<Key, Value> {
+        val expireAfterToSeconds = memoryPolicy.expireAfterTimeUnit
+                .toSeconds(memoryPolicy.expireAfterWrite)
         val maximumInFlightRequestsDuration = TimeUnit.MINUTES.toSeconds(1)
 
         return if (expireAfterToSeconds > maximumInFlightRequestsDuration) {
@@ -28,13 +33,8 @@ object CacheFactory {
                     .expireAfterWrite(maximumInFlightRequestsDuration, TimeUnit.SECONDS)
                     .build()
         } else {
-            val expireAfter = memoryPolicy?.expireAfterWrite ?: StoreDefaults.cacheTTL
-            val expireAfterUnit = if (memoryPolicy == null)
-                StoreDefaults.cacheTTLTimeUnit
-            else
-                memoryPolicy.expireAfterTimeUnit
             CacheBuilder.newBuilder()
-                    .expireAfterWrite(expireAfter, expireAfterUnit)
+                    .expireAfterWrite(memoryPolicy.expireAfterWrite, memoryPolicy.expireAfterTimeUnit)
                     .build()
         }
     }
