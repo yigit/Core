@@ -27,7 +27,6 @@ internal class StoreCacheImpl<K, V>(
                 override fun load(key: K): StoreRecord<K, V>? {
                     return StoreRecordLoader(key, loader)
                 }
-
             })
 
     override suspend fun get(key: K): V {
