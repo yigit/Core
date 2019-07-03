@@ -49,6 +49,6 @@ class DontCacheErrorsTest(
     companion object {
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = ParamsHelper.withFetcher()
+        fun params() = ParamsHelper.withFetcher<BarCode, Int>()
     }
 }
