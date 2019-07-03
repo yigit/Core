@@ -9,13 +9,24 @@ import com.nytimes.android.external.store3.base.impl.BarCode
 import com.nytimes.android.external.store3.base.impl.ParsingFetcher
 import com.nytimes.android.external.store3.base.impl.Store
 import com.nytimes.android.external.store3.base.wrappers.persister
+import com.nytimes.android.external.store3.util.KeyParser
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 
-class ParsingFetcherTest {
+@RunWith(Parameterized::class)
+class ParsingFetcherTest(
+        @Suppress("UNUSED_PARAMETER") name: String,
+        private val buildStore: (
+                Fetcher<String, BarCode>,
+                Parser<String, String>,
+                Persister<String, BarCode>
+        ) -> Store<String, BarCode>
+) {
 
     private val fetcher: Fetcher<String, BarCode> = mock()
     private val parser: Parser<String, String> = mock()
@@ -24,9 +35,7 @@ class ParsingFetcherTest {
 
     @Test
     fun testPersistFetcher() = runBlocking<Unit> {
-        val simpleStore = Store.from(ParsingFetcher.from(fetcher, parser))
-                .persister(persister)
-                .open()
+        val simpleStore = buildStore(fetcher, parser, persister)
 
         whenever(fetcher.fetch(barCode))
                 .thenReturn(RAW_DATA)
@@ -53,5 +62,9 @@ class ParsingFetcherTest {
     companion object {
         private const val RAW_DATA = "Test data."
         private const val PARSED = "DATA PARSED"
+
+        @JvmStatic
+        @Parameterized.Parameters(name = "{0}")
+        fun params() = ParamsHelper.withParserFetcherPersister<BarCode, String>()
     }
 }
