@@ -2,14 +2,48 @@ package com.nytimes.android.external.store3
 
 import com.nytimes.android.external.store3.base.impl.BarCode
 import com.nytimes.android.external.store3.base.impl.Store
+import com.nytimes.android.external.store3.pipeline.beginPipeline
+import com.nytimes.android.external.store3.pipeline.open
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 
-class ClearStoreMemoryTest {
+@RunWith(Parameterized::class)
+class ClearStoreMemoryTest(
+        name : String,
+        buildStore : (suspend (BarCode) -> Int) -> Store<Int, BarCode>
+) {
+
+    @FlowPreview
+    companion object {
+        private val controlStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
+            return Store.from(
+                    inflight = true,
+                    f = fetcher).open()
+        }
+
+        private val pipelineStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
+            return beginPipeline<BarCode, Int> {
+                flow {
+                    emit(fetcher(it))
+                }
+            }.open()
+        }
+        @JvmStatic
+        @Parameterized.Parameters(name = "{0}")
+        fun params() = listOf(
+                arrayOf("control", controlStore),
+                arrayOf("pipeline", pipelineStore))
+    }
 
     private var networkCalls = 0
-    private val store = Store.from<Int, BarCode> { networkCalls++ }.open()
+    private val store = buildStore {
+        networkCalls++
+    }
 
     @Test
     fun testClearSingleBarCode() = runBlocking<Unit> {
