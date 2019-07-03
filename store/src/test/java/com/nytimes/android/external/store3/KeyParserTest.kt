@@ -1,6 +1,5 @@
 package com.nytimes.android.external.store3
 
-import com.nytimes.android.external.store3.base.impl.Store
 import com.nytimes.android.external.store3.util.KeyParser
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.runBlocking
@@ -12,17 +11,18 @@ import org.junit.runners.Parameterized
 @FlowPreview
 @RunWith(Parameterized::class)
 class KeyParserTest(
-        @Suppress("UNUSED_PARAMETER") name: String,
-        buildStore: (suspend (Int) -> String, KeyParser<Int, String, String>) -> Store<String, Int>
+        storeType: TestStoreType
 ) {
-    private val store = buildStore(
-            { NETWORK },
-            object : KeyParser<Int, String, String> {
+    private val store = TestStoreBuilder.from(
+            fetcher = {
+                NETWORK
+            },
+            parser = object : KeyParser<Int, String, String> {
                 override suspend fun apply(key: Int, raw: String): String {
                     return raw + key
                 }
             }
-    )
+    ).build(storeType)
 
     @Test
     fun testStoreWithKeyParserFuncNoPersister() = runBlocking<Unit> {
@@ -32,8 +32,9 @@ class KeyParserTest(
     companion object {
         private const val NETWORK = "Network"
         private const val KEY = 5
+
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = ParamsHelper.withFetcherAndKeyParser<Int, String, String>()
+        fun params() = TestStoreType.values()
     }
 }

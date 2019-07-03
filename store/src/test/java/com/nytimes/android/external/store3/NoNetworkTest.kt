@@ -10,14 +10,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 
+@FlowPreview
 @RunWith(Parameterized::class)
 class NoNetworkTest(
-        @Suppress("UNUSED_PARAMETER") name : String,
-        buildStore : (suspend (BarCode) -> Any) -> Store<Any, BarCode>
+        storeType: TestStoreType
 ) {
-    private val store: Store<Any, BarCode> = buildStore {
+    private val store: Store<Any, BarCode> = TestStoreBuilder.from<BarCode, Any> {
         throw EXCEPTION
-    }
+    }.build(storeType)
 
     @Test
     fun testNoNetwork() = runBlocking<Unit> {
@@ -35,6 +35,6 @@ class NoNetworkTest(
 
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = ParamsHelper.withFetcher<BarCode, Int>(cached = false)
+        fun params() = TestStoreType.values()
     }
 }

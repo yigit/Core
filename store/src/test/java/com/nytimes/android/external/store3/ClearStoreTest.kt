@@ -2,15 +2,8 @@ package com.nytimes.android.external.store3
 
 import com.nhaarman.mockitokotlin2.mock
 import com.nhaarman.mockitokotlin2.whenever
-import com.nytimes.android.external.store3.base.Persister
 import com.nytimes.android.external.store3.base.impl.BarCode
-import com.nytimes.android.external.store3.base.impl.Store
-import com.nytimes.android.external.store3.base.wrappers.persister
-import com.nytimes.android.external.store3.pipeline.beginPipeline
-import com.nytimes.android.external.store3.pipeline.open
-import com.nytimes.android.external.store3.pipeline.withPersister
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
@@ -19,14 +12,20 @@ import org.junit.runners.Parameterized
 import org.mockito.Mockito.verify
 import java.util.concurrent.atomic.AtomicInteger
 
+@FlowPreview
 @RunWith(Parameterized::class)
 class ClearStoreTest(
-        @Suppress("UNUSED_PARAMETER") name: String,
-        buildStore: (suspend (BarCode) -> Int, ClearingPersister) -> Store<Int, BarCode>
+        storeType: TestStoreType
 ) {
     private val persister: ClearingPersister = mock()
     private val networkCalls = AtomicInteger(0)
-    private val store = buildStore({ networkCalls.incrementAndGet() }, persister)
+
+    private val store = TestStoreBuilder.from(
+            fetcher = {
+                networkCalls.incrementAndGet()
+            },
+            persister = persister
+    ).build(storeType)
 
     @Test
     fun testClearSingleBarCode() = runBlocking<Unit> {
@@ -88,40 +87,8 @@ class ClearStoreTest(
 
     @FlowPreview
     companion object {
-        private val controlStore = fun(fetcher: suspend (BarCode) -> Int, persister: ClearingPersister): Store<Int, BarCode> {
-            return Store.from(
-                    inflight = true,
-                    f = fetcher)
-                    .persister(persister).open()
-        }
-
-        private val pipelineStore = fun(fetcher: suspend (BarCode) -> Int, persister: ClearingPersister): Store<Int, BarCode> {
-            return beginPipeline<BarCode, Int> {
-                flow {
-                    emit(fetcher(it))
-                }
-            }.withPersister(
-                    reader = {
-                        flow {
-                            persister.read(key = it)?.let {
-                                emit(it)
-                            }
-                        }
-                    },
-                    writer = { key, value ->
-                        persister.write(key, value)
-                    },
-                    delete = {
-                        persister.clear(it)
-                    }
-            )
-                    .open()
-        }
-
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = listOf(
-                arrayOf("control", controlStore),
-                arrayOf("pipeline", pipelineStore))
+        fun params() = TestStoreType.values()
     }
 }

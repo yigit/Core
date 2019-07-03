@@ -1,32 +1,28 @@
 package com.nytimes.android.external.store3
 
 import com.nytimes.android.external.store3.base.impl.BarCode
-import com.nytimes.android.external.store3.base.impl.Store
-import com.nytimes.android.external.store3.pipeline.beginPipeline
-import com.nytimes.android.external.store3.pipeline.open
 import junit.framework.Assert.fail
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 
 
+@FlowPreview
 @RunWith(Parameterized::class)
 class DontCacheErrorsTest(
-        @Suppress("UNUSED_PARAMETER") name : String,
-        buildStore : (suspend (BarCode) -> Int) -> Store<Int, BarCode>
+        storeType: TestStoreType
 ) {
 
     private var shouldThrow: Boolean = false
-    private val store = buildStore {
+    private val store = TestStoreBuilder.from<BarCode, Int> {
         if (shouldThrow) {
             throw RuntimeException()
         } else {
             0
         }
-    }
+    }.build(storeType)
 
     @Test
     fun testStoreDoesntCacheErrors() = runBlocking<Unit> {
@@ -49,6 +45,6 @@ class DontCacheErrorsTest(
     companion object {
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = ParamsHelper.withFetcher<BarCode, Int>(cached = false)
+        fun params() = TestStoreType.values()
     }
 }

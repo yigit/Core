@@ -15,19 +15,15 @@ import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 import kotlin.random.Random
 
+@FlowPreview
 @RunWith(Parameterized::class)
 class SequentialTes(
-        @Suppress("UNUSED_PARAMETER") name : String,
-        buildStore : (suspend (BarCode) -> Int) -> Store<Int, BarCode>) {
+        storeType: TestStoreType) {
 
     var networkCalls = 0
-    private val store = buildStore {
+    private val store = TestStoreBuilder.from<BarCode, Int>(cached = true) {
         networkCalls ++
-    }
-
-    private val storeOld = Store.from<Int, BarCode> { networkCalls++ }
-            .cache()
-            .open()
+    }.build(storeType)
 
     @Test
     fun sequentially() = runBlocking<Unit> {
@@ -75,6 +71,6 @@ class SequentialTes(
     companion object {
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = ParamsHelper.withFetcher<BarCode, Int>(cached = true)
+        fun params() = TestStoreType.values()
     }
 }
