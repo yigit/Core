@@ -28,32 +28,12 @@ interface PipelineStore<Key, Input, Output> {
     /**
      * Return a single value for the given key.
      */
-    suspend fun get(key : Key) : Output? {
-        var result : Output? = null
-        try {
-            stream(key).collect {
-                result = it
-                throw AbortFlowException()
-            }
-        } catch (abort : AbortFlowException) {
-        }
-        return result
-    }
+    suspend fun get(key : Key) = stream(key).singleOrNull()
 
     /**
      * Return a single value for the given key.
      */
-    suspend fun fresh(key : Key) : Output? {
-        var result : Output? = null
-        try {
-            streamFresh(key).collect {
-                result = it
-                throw AbortFlowException()
-            }
-        } catch (abort : AbortFlowException) {
-        }
-        return result
-    }
+    suspend fun fresh(key : Key) = streamFresh(key).singleOrNull()
 
 
     /**

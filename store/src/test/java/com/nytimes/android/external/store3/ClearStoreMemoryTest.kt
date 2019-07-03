@@ -14,32 +14,9 @@ import org.junit.runners.Parameterized
 
 @RunWith(Parameterized::class)
 class ClearStoreMemoryTest(
-        name : String,
+        @Suppress("UNUSED_PARAMETER") name : String,
         buildStore : (suspend (BarCode) -> Int) -> Store<Int, BarCode>
 ) {
-
-    @FlowPreview
-    companion object {
-        private val controlStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
-            return Store.from(
-                    inflight = true,
-                    f = fetcher).open()
-        }
-
-        private val pipelineStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
-            return beginPipeline<BarCode, Int> {
-                flow {
-                    emit(fetcher(it))
-                }
-            }.open()
-        }
-        @JvmStatic
-        @Parameterized.Parameters(name = "{0}")
-        fun params() = listOf(
-                arrayOf("control", controlStore),
-                arrayOf("pipeline", pipelineStore))
-    }
-
     private var networkCalls = 0
     private val store = buildStore {
         networkCalls++
@@ -75,5 +52,27 @@ class ClearStoreMemoryTest(
         store.get(b1)
         store.get(b2)
         assertThat(networkCalls).isEqualTo(4)
+    }
+
+    @FlowPreview
+    companion object {
+        private val controlStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
+            return Store.from(
+                    inflight = true,
+                    f = fetcher).open()
+        }
+
+        private val pipelineStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
+            return beginPipeline<BarCode, Int> {
+                flow {
+                    emit(fetcher(it))
+                }
+            }.open()
+        }
+        @JvmStatic
+        @Parameterized.Parameters(name = "{0}")
+        fun params() = listOf(
+                arrayOf("control", controlStore),
+                arrayOf("pipeline", pipelineStore))
     }
 }
