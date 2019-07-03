@@ -1,6 +1,7 @@
 package com.nytimes.android.external.store3.pipeline
 
 import com.nytimes.android.external.store3.base.impl.MemoryPolicy
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 
@@ -52,6 +53,7 @@ fun <Key, OldInput, OldOutput, NewOutput> PipelineStore<Key, OldInput, OldOutput
     )
 }
 
+@ExperimentalCoroutinesApi
 @FlowPreview
 fun <Key, OldInput, OldOutput, NewOutput> PipelineStore<Key, OldInput, OldOutput>.withNonFlowPersister(
         reader: suspend (Key) -> NewOutput?,

@@ -56,10 +56,10 @@ fun <Key, Input, Output> PipelineStore<Key, Input, Output>.open() : Store<Output
 
         override suspend fun fresh(key: Key) = self.fresh(key)!!
 
+        // We could technically implement this based on other calls but it does have a cost,
+        // implementation is tricky and yigit is not sure what the use case is ¯\_(ツ)_/¯
         @FlowPreview
-        override fun stream(): Flow<Pair<Key, Output>> = TODO("not supported"
-
-        )
+        override fun stream(): Flow<Pair<Key, Output>> = TODO("not supported")
 
         @FlowPreview
         override fun stream(key: Key) = runBlocking {
