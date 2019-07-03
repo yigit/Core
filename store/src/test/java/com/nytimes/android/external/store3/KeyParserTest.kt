@@ -17,7 +17,7 @@ class KeyParserTest(
             fetcher = {
                 NETWORK
             },
-            parser = object : KeyParser<Int, String, String> {
+            fetchParser = object : KeyParser<Int, String, String> {
                 override suspend fun apply(key: Int, raw: String): String {
                     return raw + key
                 }

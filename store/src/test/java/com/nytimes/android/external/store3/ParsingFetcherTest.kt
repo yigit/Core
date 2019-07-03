@@ -30,7 +30,7 @@ class ParsingFetcherTest(
     fun testPersistFetcher() = runBlocking<Unit> {
         val simpleStore = TestStoreBuilder.from(
                 fetcher = fetcher,
-                parser = parser,
+                fetchParser = parser,
                 persister = persister
         ).build(storeType)
 

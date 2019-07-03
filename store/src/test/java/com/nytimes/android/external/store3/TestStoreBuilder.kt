@@ -17,9 +17,9 @@ import kotlinx.coroutines.flow.flow
 
 data class TestStoreBuilder<Key, Output>(
         private val buildStore: () -> Store<Output, Key>,
-        private val buildPipelineStore: () -> Store<Output, Key>
+        private val buildPipelineStore: () -> Store<out Output, Key>
 ) {
-    fun build(storeType: TestStoreType): Store<Output, Key> = when (storeType) {
+    fun build(storeType: TestStoreType): Store<out Output, Key> = when (storeType) {
         TestStoreType.Store -> buildStore()
         TestStoreType.Pipeline -> buildPipelineStore()
     }
@@ -32,7 +32,7 @@ data class TestStoreBuilder<Key, Output>(
         ): TestStoreBuilder<Key, Output> = from(
                 inflight = inflight,
                 persister = null,
-                keyParser = null,
+                fetchParser = null,
                 fetcher = fetcher
         )
 
@@ -40,11 +40,11 @@ data class TestStoreBuilder<Key, Output>(
         fun <Key, Output> from(
                 inflight: Boolean = true,
                 fetcher: suspend (Key) -> Output,
-                parser : KeyParser<Key, Output, Output>
+                fetchParser : KeyParser<Key, Output, Output>
         ): TestStoreBuilder<Key, Output> = from(
                 inflight = inflight,
                 persister = null,
-                keyParser = parser,
+                fetchParser = fetchParser,
                 fetcher = fetcher
         )
 
@@ -52,14 +52,31 @@ data class TestStoreBuilder<Key, Output>(
         fun <Key, Output> from(
                 inflight: Boolean = true,
                 fetcher: Fetcher<Output, Key>,
-                parser : Parser<Output, Output>,
+                fetchParser : Parser<Output, Output>,
                 persister: Persister<Output, Key>
         ): TestStoreBuilder<Key, Output> = from(
                 inflight = inflight,
                 persister = persister,
-                keyParser = object : KeyParser<Key, Output, Output> {
+                fetchParser = object : KeyParser<Key, Output, Output> {
                     override suspend fun apply(key: Key, raw: Output): Output {
-                        return parser.apply(raw)
+                        return fetchParser.apply(raw)
+                    }
+                },
+                fetcher = fetcher
+        )
+
+        @FlowPreview
+        fun <Key, Output> fromPostParser(
+                inflight: Boolean = true,
+                fetcher: Fetcher<Output, Key>,
+                postParser : Parser<Output, Output>,
+                persister: Persister<Output, Key>
+        ): TestStoreBuilder<Key, Output> = from(
+                inflight = inflight,
+                persister = persister,
+                postParser = object : KeyParser<Key, Output, Output> {
+                    override suspend fun apply(key: Key, raw: Output): Output {
+                        return postParser.apply(raw)
                     }
                 },
                 fetcher = fetcher
@@ -73,7 +90,7 @@ data class TestStoreBuilder<Key, Output>(
                 cacheMemoryPolicy: MemoryPolicy? = null,
                 persister: Persister<Output, Key>? = null,
                 persisterStalePolicy: StalePolicy = StalePolicy.UNSPECIFIED,
-                keyParser: KeyParser<Key, Output, Output>? = null,
+                fetchParser: KeyParser<Key, Output, Output>? = null,
                 fetcher: suspend (Key) -> Output
         ): TestStoreBuilder<Key, Output> = from(
                 inflight = inflight,
@@ -81,7 +98,7 @@ data class TestStoreBuilder<Key, Output>(
                 cacheMemoryPolicy = cacheMemoryPolicy,
                 persister = persister,
                 persisterStalePolicy = persisterStalePolicy,
-                keyParser = keyParser,
+                fetchParser = fetchParser,
                 fetcher = object : Fetcher<Output, Key> {
                     override suspend fun fetch(key: Key): Output = fetcher(key)
                 }
@@ -94,7 +111,10 @@ data class TestStoreBuilder<Key, Output>(
                 cacheMemoryPolicy: MemoryPolicy? = null,
                 persister: Persister<Output, Key>? = null,
                 persisterStalePolicy: StalePolicy = StalePolicy.UNSPECIFIED,
-                keyParser: KeyParser<Key, Output, Output>? = null,
+                // parser that runs after fetch
+                fetchParser: KeyParser<Key, Output, Output>? = null,
+                // parser that runs after get from db
+                postParser: KeyParser<Key, Output, Output>? = null,
                 fetcher: Fetcher<Output, Key>
         ): TestStoreBuilder<Key, Output> {
             return TestStoreBuilder(
@@ -103,16 +123,22 @@ data class TestStoreBuilder<Key, Output>(
                                 inflight = inflight,
                                 f = fetcher
                         ).let {
-                            if (keyParser == null) {
+                            if (fetchParser == null) {
                                 it
                             } else {
-                                it.parser(keyParser)
+                                it.parser(fetchParser)
                             }
                         }.let {
                             if (persister == null) {
                                 it
                             } else {
                                 it.persister(persister, persisterStalePolicy)
+                            }
+                        }.let {
+                            if (postParser == null) {
+                                it
+                            } else {
+                                it.parser(postParser)
                             }
                         }.let {
                             if (cached) {
@@ -130,24 +156,20 @@ data class TestStoreBuilder<Key, Output>(
                                     }
                                 }
                         ).let {
-                            if (keyParser == null) {
+                            if (fetchParser == null) {
                                 it
                             } else {
                                 it.withKeyConverter { key, oldOutput ->
-                                    keyParser.apply(key, oldOutput)
+                                    fetchParser.apply(key, oldOutput)
                                 }
                             }
                         }.let {
                             if (persister == null) {
                                 it
                             } else {
-                                it.withPersister(
-                                        reader = { key: Key ->
-                                            flow {
-                                                persister.read(key)?.let { value: Output ->
-                                                    emit(value)
-                                                }
-                                            }
+                                it.withNonFlowPersister(
+                                        reader = {
+                                            persister.read(it)
                                         },
                                         writer = { key, value ->
                                             persister.write(key, value)
@@ -166,6 +188,14 @@ data class TestStoreBuilder<Key, Output>(
                                 it.withCache(cacheMemoryPolicy)
                             } else {
                                 it
+                            }
+                        }.let {
+                            if (postParser == null) {
+                                it
+                            } else {
+                                it.withKeyConverter { key, oldOutput ->
+                                    postParser.apply(key, oldOutput)
+                                }
                             }
                         }.open()
                     }

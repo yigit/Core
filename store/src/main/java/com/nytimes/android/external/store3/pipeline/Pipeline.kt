@@ -51,3 +51,26 @@ fun <Key, OldInput, OldOutput, NewOutput> PipelineStore<Key, OldInput, OldOutput
             delete = delete
     )
 }
+
+@FlowPreview
+fun <Key, OldInput, OldOutput, NewOutput> PipelineStore<Key, OldInput, OldOutput>.withNonFlowPersister(
+        reader: suspend (Key) -> NewOutput?,
+        writer: suspend (Key, OldOutput) -> Unit,
+        delete: (suspend (Key) -> Unit)? = null
+): PipelineStore<Key, OldOutput, NewOutput> {
+    val flowable = SimplePersisterAsFlowable(
+            reader = reader,
+            writer = writer,
+            delete = delete
+    )
+    return PipelinePersister(
+            fetcher = this,
+            reader = flowable::flowReader,
+            writer = flowable::flowWriter,
+            delete = if (delete == null) {
+                null
+            } else {
+                flowable::flowDelete
+            }
+    )
+}

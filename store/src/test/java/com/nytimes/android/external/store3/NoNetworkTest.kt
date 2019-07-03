@@ -15,7 +15,7 @@ import org.junit.runners.Parameterized
 class NoNetworkTest(
         storeType: TestStoreType
 ) {
-    private val store: Store<Any, BarCode> = TestStoreBuilder.from<BarCode, Any> {
+    private val store: Store<out Any, BarCode> = TestStoreBuilder.from<BarCode, Any> {
         throw EXCEPTION
     }.build(storeType)
 
