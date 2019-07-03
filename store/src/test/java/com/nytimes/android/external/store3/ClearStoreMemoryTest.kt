@@ -56,23 +56,8 @@ class ClearStoreMemoryTest(
 
     @FlowPreview
     companion object {
-        private val controlStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
-            return Store.from(
-                    inflight = true,
-                    f = fetcher).open()
-        }
-
-        private val pipelineStore = fun(fetcher : suspend (BarCode) -> Int) : Store<Int, BarCode> {
-            return beginPipeline<BarCode, Int> {
-                flow {
-                    emit(fetcher(it))
-                }
-            }.open()
-        }
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = listOf(
-                arrayOf("control", controlStore),
-                arrayOf("pipeline", pipelineStore))
+        fun params() = ParamsHelper.withFetcher()
     }
 }
