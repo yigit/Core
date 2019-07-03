@@ -18,6 +18,15 @@ fun <Key, Output> beginPipeline(
 fun <Key, Input, OldOutput, NewOutput>PipelineStore<Key, Input, OldOutput>.withConverter(
         converter : suspend (OldOutput) -> NewOutput
 ) : PipelineStore<Key, Input, NewOutput> {
+    return PipelineConverterStore(this) { key, value ->
+        converter(value)
+    }
+}
+
+@FlowPreview
+fun <Key, Input, OldOutput, NewOutput>PipelineStore<Key, Input, OldOutput>.withKeyConverter(
+        converter : suspend (Key, OldOutput) -> NewOutput
+) : PipelineStore<Key, Input, NewOutput> {
     return PipelineConverterStore(this, converter)
 }
 
