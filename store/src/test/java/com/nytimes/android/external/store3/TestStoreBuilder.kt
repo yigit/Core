@@ -5,6 +5,7 @@ import com.nytimes.android.external.store3.base.Fetcher
 import com.nytimes.android.external.store3.base.Parser
 import com.nytimes.android.external.store3.base.Persister
 import com.nytimes.android.external.store3.base.impl.MemoryPolicy
+import com.nytimes.android.external.store3.base.impl.StalePolicy
 import com.nytimes.android.external.store3.base.impl.Store
 import com.nytimes.android.external.store3.base.wrappers.cache
 import com.nytimes.android.external.store3.base.wrappers.parser
@@ -71,6 +72,7 @@ data class TestStoreBuilder<Key, Output>(
                 cached : Boolean = false,
                 cacheMemoryPolicy: MemoryPolicy? = null,
                 persister: Persister<Output, Key>? = null,
+                persisterStalePolicy: StalePolicy = StalePolicy.UNSPECIFIED,
                 keyParser: KeyParser<Key, Output, Output>? = null,
                 fetcher: suspend (Key) -> Output
         ): TestStoreBuilder<Key, Output> = from(
@@ -78,6 +80,7 @@ data class TestStoreBuilder<Key, Output>(
                 cached = cached,
                 cacheMemoryPolicy = cacheMemoryPolicy,
                 persister = persister,
+                persisterStalePolicy = persisterStalePolicy,
                 keyParser = keyParser,
                 fetcher = object : Fetcher<Output, Key> {
                     override suspend fun fetch(key: Key): Output = fetcher(key)
@@ -90,6 +93,7 @@ data class TestStoreBuilder<Key, Output>(
                 cached : Boolean = false,
                 cacheMemoryPolicy: MemoryPolicy? = null,
                 persister: Persister<Output, Key>? = null,
+                persisterStalePolicy: StalePolicy = StalePolicy.UNSPECIFIED,
                 keyParser: KeyParser<Key, Output, Output>? = null,
                 fetcher: Fetcher<Output, Key>
         ): TestStoreBuilder<Key, Output> {
@@ -108,7 +112,7 @@ data class TestStoreBuilder<Key, Output>(
                             if (persister == null) {
                                 it
                             } else {
-                                it.persister(persister)
+                                it.persister(persister, persisterStalePolicy)
                             }
                         }.let {
                             if (cached) {
