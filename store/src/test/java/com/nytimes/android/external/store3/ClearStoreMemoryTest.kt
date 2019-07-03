@@ -58,6 +58,6 @@ class ClearStoreMemoryTest(
     companion object {
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
-        fun params() = ParamsHelper.withFetcher<BarCode, Int>()
+        fun params() = ParamsHelper.withFetcher<BarCode, Int>(cached = false)
     }
 }

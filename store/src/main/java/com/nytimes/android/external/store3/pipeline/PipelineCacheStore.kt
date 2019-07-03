@@ -25,11 +25,20 @@ internal class PipelineCacheStore<Key, Input, Output>(
             },
             memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
+
     override suspend fun stream(key: Key): Flow<Output> {
         return delegate.stream(key)
                 .onEach {
                     memCache.put(key, it)
                 }
+    }
+
+    override suspend fun get(key: Key): Output? {
+        return memCache.get(key)
+    }
+
+    override suspend fun fresh(key: Key): Output? {
+        return memCache.fresh(key)
     }
 
     override suspend fun clearMemory() {

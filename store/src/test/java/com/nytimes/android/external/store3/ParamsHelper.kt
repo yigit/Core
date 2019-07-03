@@ -5,6 +5,7 @@ import com.nytimes.android.external.store3.base.Parser
 import com.nytimes.android.external.store3.base.Persister
 import com.nytimes.android.external.store3.base.impl.ParsingFetcher
 import com.nytimes.android.external.store3.base.impl.Store
+import com.nytimes.android.external.store3.base.wrappers.cache
 import com.nytimes.android.external.store3.base.wrappers.parser
 import com.nytimes.android.external.store3.base.wrappers.persister
 import com.nytimes.android.external.store3.pipeline.*
@@ -21,18 +22,28 @@ object ParamsHelper {
     val CONTROL = "control"
     val PIPELINE = "pipeline"
 
-    fun <Key, Output> withFetcher(): List<Array<Any>> {
+    fun <Key, Output> withFetcher(cached: Boolean): List<Array<Any>> {
         val controlStore = fun(fetcher: suspend (Key) -> Output): Store<Output, Key> {
-            return Store.from(
+            val builder = Store.from(
                     inflight = true,
-                    f = fetcher).open()
+                    f = fetcher)
+            return if (cached) {
+                builder.cache()
+            } else {
+                builder
+            }.open()
         }
 
         val pipelineStore = fun(fetcher: suspend (Key) -> Output): Store<Output, Key> {
-            return beginPipeline<Key, Output> {
+            val pipeline = beginPipeline<Key, Output> {
                 flow {
                     emit(fetcher(it))
                 }
+            }
+            return if (cached) {
+                pipeline.withCache()
+            } else {
+                pipeline
             }.open()
         }
         return listOf(
