@@ -13,40 +13,31 @@ class PipelinePersister<Key, Input, Output>(
         private val writer: suspend (Key, Input) -> Unit,
         private val delete: (suspend (Key) -> Unit)? = null
 ) : PipelineStore<Key, Output> {
-    override suspend fun get(key: Key): Output? {
-        val value: Output? = reader(key).singleOrNull()
-        value?.let {
-            // cached value from persister
-            return it
+    override suspend fun get(request: StoreRequest<Key>): Output? {
+        val value: Output? = if (request.shouldSkipCache(CacheType.DISK)) {
+            null
+        } else {
+            reader(request.key).singleOrNull()
         }
-        // nothing is cached, get fetcher
-        val fetcherValue = fetcher.get(key)
-            ?: return null // no fetch, no result
-        writer(key, fetcherValue)
-        return reader(key).singleOrNull()
-    }
-
-    override suspend fun fresh(key: Key): Output? {
-        // nothing is cached, get fetcher
-        val fetcherValue = fetcher.fresh(key)
-            ?: return null // no fetch, no result TODO should we invalidate cache, probably not?
-        writer(key, fetcherValue)
-        return reader(key).singleOrNull()
+        // skipped cache or cache is null
+        val fetcherValue = fetcher.get(request)
+        fetcherValue?.let {
+            writer(request.key, it)
+        }
+        return reader(request.key).singleOrNull()
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun stream(key: Key): Flow<Output> {
-        // TODO we'll need refresh functionality here but StoreRequest can encapsulate that later
-        return reader(key).castNonNull()
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun streamFresh(key: Key): Flow<Output> {
-        return fetcher.streamFresh(key)
-            .switchMap {
-                writer(key, it)
-                reader(key)
-            }.castNonNull()
+    override fun stream(request: StoreRequest<Key>): Flow<Output> {
+        if (request.shouldSkipCache(CacheType.DISK)) {
+            return fetcher.stream(request)
+                .switchMap {
+                    writer(request.key, it)
+                    reader(request.key)
+                }.castNonNull()
+        } else {
+            return reader(request.key).castNonNull()
+        }
     }
 
     override suspend fun clearMemory() {
