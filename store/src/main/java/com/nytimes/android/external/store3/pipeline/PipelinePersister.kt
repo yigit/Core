@@ -15,45 +15,57 @@ class PipelinePersister<Key, Input, Output>(
     private val writer: suspend (Key, Input) -> Unit,
     private val delete: (suspend (Key) -> Unit)? = null
 ) : PipelineStore<Key, Input, Output> {
-    override suspend fun get(key: Key): Output? {
+    override suspend fun get(key: Key): StoreResponse<Output> {
         val value: Output? = reader(key).singleOrNull()
         value?.let {
             // cached value from persister
-            return it
+            return StoreResponse.SuccessResponse(it)
         }
-        // nothing is cached, get fetcher
-        val fetcherValue = fetcher.get(key)
-            ?: return null // no fetch, no result
-        writer(key, fetcherValue)
-        return reader(key).singleOrNull()
+        return fresh(key)
     }
 
-    override suspend fun fresh(key: Key): Output? {
+    override suspend fun fresh(key: Key): StoreResponse<Output> {
         // nothing is cached, get fetcher
-        val fetcherValue = fetcher.fresh(key)
-            ?: return null // no fetch, no result TODO should we invalidate cache, probably not?
-        writer(key, fetcherValue)
-        return reader(key).singleOrNull()
+        val fetcherValue = fetcher.get(key)
+        fetcherValue.dataOrNull()?.let {
+            writer(key, it)
+        }
+        fetcherValue.errorOrNull()?.let {
+            return StoreResponse.ErrorResponse(
+                error = it,
+                data = null
+            )
+        }
+        return reader(key).singleOrNull()?.let {
+            StoreResponse.SuccessResponse(it)
+        } ?: StoreResponse.ErrorResponse<Output>(
+            error = RuntimeException("reader didn't return any data"),
+            data = null
+        )
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun stream(key: Key): Flow<Output> {
+    override fun stream(key: Key): Flow<StoreResponse<Output>> {
         return reader(key)
             // TODO: should we really call fetcher.streamFresh ? maybe let developer specify
             // via StoreCall ?
             // the assumption is that we always want to update from backend but what if we
             // don't. Should we instead call just stream? But if it is cached, we are basically
             // re-writing dummy data back because we don't know :/
-            .sideCollect(fetcher.streamFresh(key)) {
-                writer(key, it)
+            .sideCollect(fetcher.streamFresh(key)) { response: StoreResponse<Input> ->
+                response.dataOrNull()?.let { data: Input ->
+                    writer(key, data)
+                }
             }.castNonNull()
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun streamFresh(key: Key): Flow<Output> {
+    override fun streamFresh(key: Key): Flow<StoreResponse<Output>> {
         return fetcher.streamFresh(key)
             .switchMap {
-                writer(key, it)
+                it.dataOrNull()?.let {
+                    writer(key, it)
+                }
                 reader(key)
             }.castNonNull()
     }
@@ -82,19 +94,55 @@ private fun <T1, T2> Flow<T1>.castNonNull(): Flow<T2> {
     }
 }
 
-@UseExperimental(FlowPreview::class)
+@FlowPreview
 private fun <T, R> Flow<T>.sideCollect(
     other: Flow<R>,
     otherCollect: suspend (R) -> Unit
-) = flow {
+) = flow<StoreResponse<T>> {
+    var error: Throwable? = null
+    var lastEmitted: T? = null
+    var fetched = false
+    suspend fun update() {
+        val theError = error
+        val theEmitted = lastEmitted
+        if (theError != null) {
+            emit(
+                StoreResponse.ErrorResponse(
+                    error = theError,
+                    data = lastEmitted
+                )
+            )
+        } else if (theEmitted != null) {
+            if (fetched) {
+                emit(
+                    StoreResponse.SuccessResponse(
+                        data = theEmitted
+                    )
+                )
+            } else {
+                emit(
+                    StoreResponse.LoadingResponse(
+                        data = theEmitted
+                    )
+                )
+            }
+        }
+    }
     coroutineScope {
         launch {
-            other.collect {
-                otherCollect(it)
+            try {
+                other.collect {
+                    fetched = true
+                    otherCollect(it)
+                }
+            } catch (t: Throwable) {
+                error = t
+                update()
             }
         }
         this@sideCollect.collect {
-            emit(it)
+            lastEmitted = it
+            update()
         }
     }
 }

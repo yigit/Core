@@ -14,30 +14,30 @@ internal class PipelineCacheStore<Key, Input, Output>(
 ) : PipelineStore<Key, Input, Output> {
     private val memCache = StoreCache.from(
         loader = { key: Key ->
-            delegate.get(key)
+            delegate.get(key).throwIfError()
         },
         memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
 
-    override fun streamFresh(key: Key): Flow<Output> {
+    override fun streamFresh(key: Key): Flow<StoreResponse<Output>> {
         return delegate.streamFresh(key)
             .onEach {
                 memCache.put(key, it)
             }
     }
 
-    override fun stream(key: Key): Flow<Output> {
+    override fun stream(key: Key): Flow<StoreResponse<Output>> {
         return delegate.stream(key)
             .onEach {
                 memCache.put(key, it)
             }
     }
 
-    override suspend fun get(key: Key): Output? {
+    override suspend fun get(key: Key): StoreResponse<Output> {
         return memCache.get(key)
     }
 
-    override suspend fun fresh(key: Key): Output? {
+    override suspend fun fresh(key: Key): StoreResponse<Output> {
         return memCache.fresh(key)
     }
 
