@@ -8,14 +8,14 @@ private object NotReceived
 
 // this is actually in the library, not in our version yet or not released
 @FlowPreview
-internal suspend fun <T> Flow<T>.singleOrNull() : T? {
-    var value : Any? = NotReceived
+internal suspend fun <T> Flow<T>.singleOrNull(): T? {
+    var value: Any? = NotReceived
     try {
-       collect {
-           value = it
-           throw AbortFlowException()
-       }
-    } catch (abort : AbortFlowException) {
+        collect {
+            value = it
+            throw AbortFlowException()
+        }
+    } catch (abort: AbortFlowException) {
         // expected
     }
     return if (value === NotReceived) {

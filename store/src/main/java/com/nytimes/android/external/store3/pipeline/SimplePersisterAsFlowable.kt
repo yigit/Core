@@ -15,9 +15,9 @@ import kotlinx.coroutines.sync.withLock
 @ExperimentalCoroutinesApi
 @FlowPreview
 class SimplePersisterAsFlowable<Key, Input, Output>(
-        private val reader: suspend (Key) -> Output?,
-        private val writer: suspend (Key, Input) -> Unit,
-        private val delete: (suspend (Key) -> Unit)? = null
+    private val reader: suspend (Key) -> Output?,
+    private val writer: suspend (Key, Input) -> Unit,
+    private val delete: (suspend (Key) -> Unit)? = null
 ) {
     private val versionTracker = KeyVersionTracker<Key>()
 
@@ -52,7 +52,7 @@ private class KeyVersionTracker<Key> {
     }
 
     suspend fun invalidate(key: Key) = mutex.withLock {
-        val newVersion = (versions.get(key) ?: 0) + 1
+        val newVersion = (versions[key] ?: 0) + 1
         versions[key] = newVersion
         invalidations.send(key to newVersion)
     }

@@ -2,11 +2,10 @@ package com.nytimes.android.external.store3.pipeline
 
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 
 @FlowPreview
 internal class PipelineFetcherStore<Key, Output>(
-        private val fetcher : (Key) -> Flow<Output>
+    private val fetcher: (Key) -> Flow<Output>
 ) : PipelineStore<Key, NoInput, Output> {
     override suspend fun get(key: Key): Output? {
         return fetcher(key).singleOrNull()

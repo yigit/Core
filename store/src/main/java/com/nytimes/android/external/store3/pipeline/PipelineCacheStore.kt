@@ -9,28 +9,28 @@ import kotlinx.coroutines.flow.onEach
 
 @FlowPreview
 internal class PipelineCacheStore<Key, Input, Output>(
-        private val delegate : PipelineStore<Key, Input, Output>,
-        private val memoryPolicy: MemoryPolicy? = null
+    private val delegate: PipelineStore<Key, Input, Output>,
+    memoryPolicy: MemoryPolicy? = null
 ) : PipelineStore<Key, Input, Output> {
     private val memCache = StoreCache.from(
-            loader = { key: Key ->
-                delegate.get(key)
-            },
-            memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
+        loader = { key: Key ->
+            delegate.get(key)
+        },
+        memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
 
     override fun streamFresh(key: Key): Flow<Output> {
         return delegate.streamFresh(key)
-                .onEach {
-                    memCache.put(key, it)
-                }
+            .onEach {
+                memCache.put(key, it)
+            }
     }
 
     override fun stream(key: Key): Flow<Output> {
         return delegate.stream(key)
-                .onEach {
-                    memCache.put(key, it)
-                }
+            .onEach {
+                memCache.put(key, it)
+            }
     }
 
     override suspend fun get(key: Key): Output? {

@@ -13,8 +13,8 @@ private fun <Key, In, Out> castConverter(): suspend (Key, In) -> Out {
 
 @UseExperimental(FlowPreview::class)
 class PipelineConverterStore<Key, Input, OldOutput, NewOutput>(
-        private val delegate: PipelineStore<Key, Input, OldOutput>,
-        private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()
+    private val delegate: PipelineStore<Key, Input, OldOutput>,
+    private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()
 ) : PipelineStore<Key, Input, NewOutput> {
     override suspend fun get(key: Key): NewOutput? {
         return delegate.get(key)?.let {
