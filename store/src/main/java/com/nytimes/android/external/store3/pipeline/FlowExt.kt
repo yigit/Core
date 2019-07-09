@@ -50,26 +50,3 @@ internal fun <T> Flow<T>.mapToStoreResponse(): Flow<StoreResponse<T>> {
         }
     }
 }
-
-// take from Errors.kt
-@FlowPreview
-internal fun <T> Flow<T>.storeCollectSafely(onException: suspend FlowCollector<T>.(Throwable, lastEmitted: T?) -> Unit): Flow<T> =
-    flow {
-        // Note that exception may come from the downstream operators, we should not switch on that
-        var fromDownstream = false
-        var lastEmitted: T? = null
-        try {
-            collect {
-                try {
-                    lastEmitted = it
-                    emit(it)
-                } catch (e: Throwable) {
-                    fromDownstream = true
-                    throw e
-                }
-            }
-        } catch (e: Throwable) {
-            if (fromDownstream) throw e
-            onException(e, lastEmitted)
-        }
-    }

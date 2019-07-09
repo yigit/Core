@@ -30,8 +30,11 @@ class PipelinePersister<Key, Input, Output>(
         fetcherValue.dataOrNull()?.let {
             writer(key, it)
         }
-        if (fetcherValue.isError()) {
-            return fetcherValue.mapData { throw UnsupportedOperationException("should not come here") }
+        fetcherValue.errorOrNull()?.let {
+            return StoreResponse.ErrorResponse(
+                error = it,
+                data = null
+            )
         }
         return reader(key).singleOrNull()?.let {
             StoreResponse.SuccessResponse(it)
@@ -91,7 +94,7 @@ private fun <T1, T2> Flow<T1>.castNonNull(): Flow<T2> {
     }
 }
 
-@UseExperimental(FlowPreview::class)
+@FlowPreview
 private fun <T, R> Flow<T>.sideCollect(
     other: Flow<R>,
     otherCollect: suspend (R) -> Unit
@@ -104,7 +107,7 @@ private fun <T, R> Flow<T>.sideCollect(
         val theEmitted = lastEmitted
         if (theError != null) {
             emit(
-                StoreResponse.ErrorResponse<T>(
+                StoreResponse.ErrorResponse(
                     error = theError,
                     data = lastEmitted
                 )

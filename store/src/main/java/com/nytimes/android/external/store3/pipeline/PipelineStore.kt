@@ -4,7 +4,9 @@ import com.nytimes.android.external.store3.base.impl.Store
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
 
 // taken from
 // https://github.com/Kotlin/kotlinx.coroutines/blob/7699a20982c83d652150391b39567de4833d4253/kotlinx-coroutines-core/js/src/flow/internal/FlowExceptions.kt
@@ -29,13 +31,13 @@ interface PipelineStore<Key, Input, Output> {
     /**
      * Return a single value for the given key.
      */
-    suspend fun get(key: Key): StoreResponse<Output>// = stream(key).single()
-
+    // DO NOT auto delegate to stream, implementation for get and stream differ significantly
+    suspend fun get(key: Key): StoreResponse<Output>
     /**
      * Return a single value for the given key.
      */
-    suspend fun fresh(key: Key): StoreResponse<Output> //= streamFresh(key).single()
-
+    // DO NOT auto delegate to stream, implementation for get and stream differ significantly
+    suspend fun fresh(key: Key): StoreResponse<Output>
 
     /**
      * Clear the memory cache of all entries
@@ -63,10 +65,16 @@ fun <Key, Input, Output> PipelineStore<Key, Input, Output>.open(): Store<Output,
         override fun stream(): Flow<Pair<Key, Output>> = TODO("not supported")
 
         @FlowPreview
-        override fun stream(key: Key) = self.stream(key)
-            .map {
-                it.dataOrThrow()!!
-            }
+        override fun stream(key: Key) = flow {
+            // mapNotNull does not make compiler happy because Output : Any is not defined, hence,
+            // hand rolled map not null :/
+            self.stream(key)
+                .collect {
+                    it.dataOrThrow()?.let {
+                        emit(it)
+                    }
+                }
+        }
 
         override suspend fun clearMemory() {
             self.clearMemory()
