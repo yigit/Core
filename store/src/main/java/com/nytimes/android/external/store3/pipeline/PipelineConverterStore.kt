@@ -16,30 +16,16 @@ class PipelineConverterStore<Key, Input, OldOutput, NewOutput>(
     private val delegate: PipelineStore<Key, Input, OldOutput>,
     private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()
 ) : PipelineStore<Key, Input, NewOutput> {
-    override suspend fun get(key: Key): StoreResponse<NewOutput> {
-        return delegate.get(key).mapData {
-            converter(key, it)
+    override suspend fun get(request: StoreRequest<Key>): StoreResponse<NewOutput> {
+        return delegate.get(request).mapData {
+            converter(request.key, it)
         }
     }
 
-    override suspend fun fresh(key: Key): StoreResponse<NewOutput> {
-        return delegate.get(key).mapData {
-            converter(key, it)
-        }
-    }
-
-    override fun stream(key: Key): Flow<StoreResponse<NewOutput>> {
-        return delegate.stream(key).map {
+    override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<NewOutput>> {
+        return delegate.stream(request).map {
             it.mapData {
-                converter(key, it)
-            }
-        }
-    }
-
-    override fun streamFresh(key: Key): Flow<StoreResponse<NewOutput>> {
-        return delegate.streamFresh(key).map {
-            it.mapData {
-                converter(key, it)
+                converter(request.key, it)
             }
         }
     }

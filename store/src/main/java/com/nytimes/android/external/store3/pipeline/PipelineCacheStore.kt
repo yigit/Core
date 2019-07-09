@@ -14,31 +14,30 @@ internal class PipelineCacheStore<Key, Input, Output>(
 ) : PipelineStore<Key, Input, Output> {
     private val memCache = StoreCache.from(
         loader = { key: Key ->
-            delegate.get(key).throwIfError()
+            // TODO StoreRequest needs to be something different since cache rules might be
+            // different in separate calls
+            delegate.get(StoreRequest.caced(key)).throwIfError()
         },
         memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
 
-    override fun streamFresh(key: Key): Flow<StoreResponse<Output>> {
-        return delegate.streamFresh(key)
-            .onEach {
-                memCache.put(key, it)
-            }
+    override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
+        if (request.shouldSkipCache(CacheType.MEMORY)) {
+            return delegate.stream(request)
+                .onEach {
+                    memCache.put(request.key, it)
+                }
+        } else {
+            TODO("need info about where we want to refresh from")
+        }
     }
 
-    override fun stream(key: Key): Flow<StoreResponse<Output>> {
-        return delegate.stream(key)
-            .onEach {
-                memCache.put(key, it)
-            }
-    }
-
-    override suspend fun get(key: Key): StoreResponse<Output> {
-        return memCache.get(key)
-    }
-
-    override suspend fun fresh(key: Key): StoreResponse<Output> {
-        return memCache.fresh(key)
+    override suspend fun get(request: StoreRequest<Key>): StoreResponse<Output> {
+        if (request.shouldSkipCache(CacheType.MEMORY)) {
+            return memCache.fresh(key = request.key)
+        } else {
+            return memCache.get(key = request.key)
+        }
     }
 
     override suspend fun clearMemory() {

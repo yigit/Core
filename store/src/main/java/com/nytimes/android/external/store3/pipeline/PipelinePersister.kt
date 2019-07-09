@@ -15,20 +15,20 @@ class PipelinePersister<Key, Input, Output>(
     private val writer: suspend (Key, Input) -> Unit,
     private val delete: (suspend (Key) -> Unit)? = null
 ) : PipelineStore<Key, Input, Output> {
-    override suspend fun get(key: Key): StoreResponse<Output> {
-        val value: Output? = reader(key).singleOrNull()
+    override suspend fun get(request: StoreRequest<Key>): StoreResponse<Output> {
+        val value: Output? = if (request.shouldSkipCache(CacheType.DISK)) {
+            null
+        } else {
+            reader(request.key).singleOrNull()
+        }
         value?.let {
             // cached value from persister
             return StoreResponse.SuccessResponse(it)
         }
-        return fresh(key)
-    }
-
-    override suspend fun fresh(key: Key): StoreResponse<Output> {
-        // nothing is cached, get fetcher
-        val fetcherValue = fetcher.get(key)
+        // skipped cache or cache is null
+        val fetcherValue = fetcher.get(request)
         fetcherValue.dataOrNull()?.let {
-            writer(key, it)
+            writer(request.key, it)
         }
         fetcherValue.errorOrNull()?.let {
             return StoreResponse.ErrorResponse(
@@ -36,7 +36,7 @@ class PipelinePersister<Key, Input, Output>(
                 data = null
             )
         }
-        return reader(key).singleOrNull()?.let {
+        return reader(request.key).singleOrNull()?.let {
             StoreResponse.SuccessResponse(it)
         } ?: StoreResponse.ErrorResponse<Output>(
             error = RuntimeException("reader didn't return any data"),
@@ -45,29 +45,25 @@ class PipelinePersister<Key, Input, Output>(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun stream(key: Key): Flow<StoreResponse<Output>> {
-        return reader(key)
-            // TODO: should we really call fetcher.streamFresh ? maybe let developer specify
-            // via StoreCall ?
-            // the assumption is that we always want to update from backend but what if we
-            // don't. Should we instead call just stream? But if it is cached, we are basically
-            // re-writing dummy data back because we don't know :/
-            .sideCollect(fetcher.streamFresh(key)) { response: StoreResponse<Input> ->
-                response.dataOrNull()?.let { data: Input ->
-                    writer(key, data)
-                }
-            }.castNonNull()
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun streamFresh(key: Key): Flow<StoreResponse<Output>> {
-        return fetcher.streamFresh(key)
-            .switchMap {
-                it.dataOrNull()?.let {
-                    writer(key, it)
-                }
-                reader(key)
-            }.castNonNull()
+    override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
+        if (request.shouldSkipCache(CacheType.DISK)) {
+            return fetcher.stream(request)
+                .switchMap {
+                    it.dataOrNull()?.let {
+                        writer(request.key, it)
+                    }
+                    reader(request.key)
+                }.castNonNull()
+        } else {
+            return reader(request.key)
+                // TODO: we need to get more information from the request to decide whether we
+                //  should refresh from network or not
+                .sideCollect(fetcher.stream(request)) { response: StoreResponse<Input> ->
+                    response.dataOrNull()?.let { data: Input ->
+                        writer(request.key, data)
+                    }
+                }.castNonNull()
+        }
     }
 
     override suspend fun clearMemory() {

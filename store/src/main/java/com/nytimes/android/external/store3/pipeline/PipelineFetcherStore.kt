@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.single
 internal class PipelineFetcherStore<Key, Output>(
     private val fetcher: (Key) -> Flow<Output>
 ) : PipelineStore<Key, NoInput, Output> {
-    override suspend fun get(key: Key): StoreResponse<Output> {
+    override suspend fun get(request: StoreRequest<Key>): StoreResponse<Output> {
         return try {
-            StoreResponse.SuccessResponse(fetcher(key).single())
+            StoreResponse.SuccessResponse(fetcher(request.key).single())
         } catch (ex: Throwable) {
             StoreResponse.ErrorResponse<Output>(
                 error = ex,
@@ -19,20 +19,7 @@ internal class PipelineFetcherStore<Key, Output>(
         }
     }
 
-    override suspend fun fresh(key: Key): StoreResponse<Output> {
-        return try {
-            StoreResponse.SuccessResponse(fetcher(key).single())
-        } catch (ex: Throwable) {
-            StoreResponse.ErrorResponse<Output>(
-                error = ex,
-                data = null
-            )
-        }
-    }
-
-    override fun stream(key: Key) = fetcher(key).mapToStoreResponse()
-
-    override fun streamFresh(key: Key) = fetcher(key).mapToStoreResponse()
+    override fun stream(request: StoreRequest<Key>) = fetcher(request.key).mapToStoreResponse()
 
     override suspend fun clearMemory() {
 
