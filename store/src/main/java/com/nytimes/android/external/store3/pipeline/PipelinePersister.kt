@@ -8,12 +8,12 @@ import kotlinx.coroutines.launch
 @FlowPreview
 class PipelinePersister<Key, Input, Output>(
         private val fetcher : PipelineStore<Key, *, Input>,
-        private val reader : suspend (Key) -> Flow<Output?>,
+        private val reader : (Key) -> Flow<Output?>,
         private val writer : suspend (Key, Input) -> Unit,
         private val delete : (suspend (Key) -> Unit)? = null
 ) : PipelineStore<Key, Input, Output> {
     override suspend fun get(key: Key): Output? {
-        var value : Output? = reader(key).singleOrNull()
+        val value : Output? = reader(key).singleOrNull()
         value?.let {
             // cached value from persister
             return it
@@ -34,7 +34,7 @@ class PipelinePersister<Key, Input, Output>(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun stream(key: Key): Flow<Output> {
+    override fun stream(key: Key): Flow<Output> {
         return reader(key)
                 // TODO: should we really call fetcher.streamFresh ? maybe let developer specify
                 // via StoreCall ?
@@ -47,7 +47,7 @@ class PipelinePersister<Key, Input, Output>(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun streamFresh(key: Key): Flow<Output> {
+    override fun streamFresh(key: Key): Flow<Output> {
         return fetcher.streamFresh(key)
                 .switchMap {
                     writer(key, it)

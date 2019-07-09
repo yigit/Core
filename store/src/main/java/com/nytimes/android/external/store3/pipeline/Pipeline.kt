@@ -10,7 +10,7 @@ class NoInput
 
 @FlowPreview
 fun <Key, Output> beginPipeline(
-        fetcher: suspend (Key) -> Flow<Output>
+        fetcher: (Key) -> Flow<Output>
 ): PipelineStore<Key, NoInput, Output> {
     return PipelineFetcherStore(fetcher)
 }
@@ -41,7 +41,7 @@ fun <Key, Input, Output> PipelineStore<Key, Input, Output>.withCache(
 
 @FlowPreview
 fun <Key, OldInput, OldOutput, NewOutput> PipelineStore<Key, OldInput, OldOutput>.withPersister(
-        reader: suspend (Key) -> Flow<NewOutput>,
+        reader: (Key) -> Flow<NewOutput>,
         writer: suspend (Key, OldOutput) -> Unit,
         delete: (suspend (Key) -> Unit)? = null
 ): PipelineStore<Key, OldOutput, NewOutput> {

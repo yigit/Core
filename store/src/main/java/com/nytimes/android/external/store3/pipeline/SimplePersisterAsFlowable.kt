@@ -21,7 +21,7 @@ class SimplePersisterAsFlowable<Key, Input, Output>(
 ) {
     private val versionTracker = KeyVersionTracker<Key>()
 
-    suspend fun flowReader(key: Key): Flow<Output?> = flow<Output?> {
+    fun flowReader(key: Key): Flow<Output?> = flow {
         versionTracker.keyFlow(key).collect {
             emit(reader(key))
         }
@@ -32,7 +32,7 @@ class SimplePersisterAsFlowable<Key, Input, Output>(
         versionTracker.invalidate(key)
     }
 
-    suspend fun flowDelete(key: Key): Unit {
+    suspend fun flowDelete(key: Key) {
         delete?.let {
             it(key)
             versionTracker.invalidate(key)
