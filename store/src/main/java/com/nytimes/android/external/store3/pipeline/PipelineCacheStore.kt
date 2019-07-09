@@ -13,10 +13,10 @@ internal class PipelineCacheStore<Key, Input, Output>(
     memoryPolicy: MemoryPolicy? = null
 ) : PipelineStore<Key, Input, Output> {
     private val memCache = StoreCache.from(
-            loader = { key: Key ->
-                delegate.get(key).throwIfError()
-            },
-            memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
+        loader = { key: Key ->
+            delegate.get(key).throwIfError()
+        },
+        memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
 
     override fun streamFresh(key: Key): Flow<StoreResponse<Output>> {

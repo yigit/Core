@@ -49,8 +49,8 @@ class PipelinePersister<Key, Input, Output>(
             // the assumption is that we always want to update from backend but what if we
             // don't. Should we instead call just stream? But if it is cached, we are basically
             // re-writing dummy data back because we don't know :/
-            .sideCollect(fetcher.streamFresh(key)) { response : StoreResponse<Input> ->
-                response.dataOrNull()?.let { data : Input ->
+            .sideCollect(fetcher.streamFresh(key)) { response: StoreResponse<Input> ->
+                response.dataOrNull()?.let { data: Input ->
                     writer(key, data)
                 }
             }.castNonNull()
@@ -111,13 +111,17 @@ private fun <T, R> Flow<T>.sideCollect(
             )
         } else if (theEmitted != null) {
             if (fetched) {
-                emit(StoreResponse.SuccessResponse(
-                    data = theEmitted
-                ))
+                emit(
+                    StoreResponse.SuccessResponse(
+                        data = theEmitted
+                    )
+                )
             } else {
-                emit(StoreResponse.LoadingResponse(
-                    data = theEmitted
-                ))
+                emit(
+                    StoreResponse.LoadingResponse(
+                        data = theEmitted
+                    )
+                )
             }
         }
     }

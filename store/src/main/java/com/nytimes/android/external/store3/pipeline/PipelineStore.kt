@@ -29,12 +29,12 @@ interface PipelineStore<Key, Input, Output> {
     /**
      * Return a single value for the given key.
      */
-    suspend fun get(key: Key) : StoreResponse<Output>// = stream(key).single()
+    suspend fun get(key: Key): StoreResponse<Output>// = stream(key).single()
 
     /**
      * Return a single value for the given key.
      */
-    suspend fun fresh(key: Key) : StoreResponse<Output> //= streamFresh(key).single()
+    suspend fun fresh(key: Key): StoreResponse<Output> //= streamFresh(key).single()
 
 
     /**
@@ -64,9 +64,9 @@ fun <Key, Input, Output> PipelineStore<Key, Input, Output>.open(): Store<Output,
 
         @FlowPreview
         override fun stream(key: Key) = self.stream(key)
-                .map {
-                    it.dataOrThrow()!!
-                }
+            .map {
+                it.dataOrThrow()!!
+            }
 
         override suspend fun clearMemory() {
             self.clearMemory()

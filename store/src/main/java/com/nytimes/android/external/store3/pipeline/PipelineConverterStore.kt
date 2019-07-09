@@ -11,7 +11,7 @@ private fun <Key, In, Out> castConverter(): suspend (Key, In) -> Out {
     }
 }
 
-@UseExperimental(FlowPreview::class)
+@FlowPreview
 class PipelineConverterStore<Key, Input, OldOutput, NewOutput>(
     private val delegate: PipelineStore<Key, Input, OldOutput>,
     private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()

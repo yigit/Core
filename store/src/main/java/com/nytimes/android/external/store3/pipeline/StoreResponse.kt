@@ -17,7 +17,7 @@ sealed class StoreResponse<Output>() {
         }
     }
 
-    fun dataOrNull() : Output? {
+    fun dataOrNull(): Output? {
         return when (this) {
             is LoadingResponse -> data
             is SuccessResponse -> data
@@ -25,7 +25,7 @@ sealed class StoreResponse<Output>() {
         }
     }
 
-    fun throwIfError() : StoreResponse<Output> {
+    fun throwIfError(): StoreResponse<Output> {
         if (this is ErrorResponse) {
             throw error
         }
