@@ -35,7 +35,6 @@ interface PipelineStore<Key, Input, Output> {
      */
     suspend fun fresh(key: Key): Output?
 
-
     /**
      * Clear the memory cache of all entries
      */

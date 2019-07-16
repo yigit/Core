@@ -2,6 +2,7 @@ package com.nytimes.android.external.store3.pipeline
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.ObsoleteCoroutinesApi
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+@ObsoleteCoroutinesApi
 @ExperimentalCoroutinesApi
 @FlowPreview
 class SimplePersisterAsFlowable<Key, Input, Output>(
@@ -19,7 +21,7 @@ class SimplePersisterAsFlowable<Key, Input, Output>(
     private val writer: suspend (Key, Input) -> Unit,
     private val delete: (suspend (Key) -> Unit)? = null
 ) {
-    private val versionTracker = KeyVersionTracker<Key>()
+    private val versionTracker = KeyTracker<Key>()
 
     fun flowReader(key: Key): Flow<Output?> = flow {
         versionTracker.keyFlow(key).collect {
@@ -42,23 +44,21 @@ class SimplePersisterAsFlowable<Key, Input, Output>(
 
 @FlowPreview
 @ExperimentalCoroutinesApi
-private class KeyVersionTracker<Key> {
-    private val versions = mutableMapOf<Key, Int>()
+private class KeyTracker<Key> {
     private val mutex = Mutex()
-    private val invalidations = BroadcastChannel<Pair<Key, Int>?>(Channel.CONFLATED).apply {
+    private val invalidations = BroadcastChannel<Pair<Key, Unit>?>(Channel.CONFLATED).apply {
         //a conflated channel always maintains the last element, the stream method ignore this element.
         //Here we add an empty element that will be ignored later
         offer(null)
     }
 
     suspend fun invalidate(key: Key) = mutex.withLock {
-        val newVersion = (versions[key] ?: 0) + 1
-        versions[key] = newVersion
-        invalidations.send(key to newVersion)
+        invalidations.send(key to Unit)
     }
 
-    suspend fun keyFlow(key: Key): Flow<Int> = flow {
-        emit(0)
+    @ObsoleteCoroutinesApi
+    suspend fun keyFlow(key: Key): Flow<Unit> = flow {
+        emit(Unit)
         invalidations.openSubscription().drop(1).consumeEach {
             if (it != null && it.first == key) {
                 emit(it.second)

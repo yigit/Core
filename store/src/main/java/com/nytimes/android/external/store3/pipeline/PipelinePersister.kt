@@ -38,15 +38,8 @@ class PipelinePersister<Key, Input, Output>(
 
     @Suppress("UNCHECKED_CAST")
     override fun stream(key: Key): Flow<Output> {
-        return reader(key)
-            // TODO: should we really call fetcher.streamFresh ? maybe let developer specify
-            // via StoreCall ?
-            // the assumption is that we always want to update from backend but what if we
-            // don't. Should we instead call just stream? But if it is cached, we are basically
-            // re-writing dummy data back because we don't know :/
-            .sideCollect(fetcher.streamFresh(key)) {
-                writer(key, it)
-            }.castNonNull()
+        // TODO we'll need refresh functionality here but StoreRequest can encapsulate that later
+        return reader(key).castNonNull()
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -78,23 +71,6 @@ private fun <T1, T2> Flow<T1>.castNonNull(): Flow<T2> {
             if (it != null) {
                 emit(it as T2)
             }
-        }
-    }
-}
-
-@UseExperimental(FlowPreview::class)
-private fun <T, R> Flow<T>.sideCollect(
-    other: Flow<R>,
-    otherCollect: suspend (R) -> Unit
-) = flow {
-    coroutineScope {
-        launch {
-            other.collect {
-                otherCollect(it)
-            }
-        }
-        this@sideCollect.collect {
-            emit(it)
         }
     }
 }
