@@ -36,7 +36,19 @@ class PipelinePersister<Key, Input, Output>(
                     reader(request.key)
                 }.castNonNull()
         } else {
-            return reader(request.key).castNonNull()
+            return reader(request.key).let {
+                    if (request.refresh) {
+                        // also request from backend
+                        it.sideCollect(fetcher.stream(request)) { response: Input ->
+                            response?.let { data: Input ->
+                                writer(request.key, data)
+                            }
+                        }
+                    } else {
+                        it
+                    }
+                }
+                .castNonNull()
         }
     }
 
@@ -60,6 +72,24 @@ private fun <T1, T2> Flow<T1>.castNonNull(): Flow<T2> {
             if (it != null) {
                 emit(it as T2)
             }
+        }
+    }
+}
+
+
+@FlowPreview
+private fun <T, R> Flow<T>.sideCollect(
+    other: Flow<R>,
+    otherCollect: suspend (R) -> Unit
+) = flow {
+    coroutineScope {
+        launch {
+            other.collect {
+                otherCollect(it)
+            }
+        }
+        this@sideCollect.collect {
+            emit(it)
         }
     }
 }

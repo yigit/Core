@@ -1,26 +1,44 @@
 package com.nytimes.android.external.store3.pipeline
 
 data class StoreRequest<Key> private constructor(
+    /**
+     * The key for the request
+     */
     val key: Key,
-    private val skippedCaches: Int
+    /**
+     * List of cache types that should be skipped when retuning the response
+     */
+    private val skippedCaches: Int,
+    /**
+     * If set to true, even if the data is returned by some cache step, Store will still execute
+     * the full pipeline to get new values while returning the cached value.
+     */
+    val refresh: Boolean = false
 ) {
-    constructor(key: Key, vararg skippedCaches: CacheType) : this(
-        key, skippedCaches.fold(0) { prev, next ->
-            prev.or(next.flag)
-        }
-    )
 
     fun shouldSkipCache(type: CacheType) = skippedCaches.and(type.flag) != 0
 
     companion object {
+        private val allCaches = CacheType.values().fold(0) { prev, next ->
+            prev.or(next.flag)
+        }
+
         fun <Key> fresh(key: Key) = StoreRequest(
-            key,
-            *CacheType.values()
+            key = key,
+            skippedCaches = allCaches,
+            refresh = true
         )
 
-        fun <Key> caced(key: Key) = StoreRequest(
-            key,
-            0
+        fun <Key> cached(key: Key, refresh: Boolean) = StoreRequest(
+            key = key,
+            skippedCaches = 0,
+            refresh = refresh
+        )
+
+        fun <Key> skipMemory(key: Key, refresh: Boolean) = StoreRequest(
+            key = key,
+            skippedCaches = CacheType.MEMORY.flag,
+            refresh = refresh
         )
     }
 }
