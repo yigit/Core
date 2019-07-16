@@ -45,7 +45,7 @@ fun <Key, Input, Output> PipelineStore<Key, Input, Output>.open(): Store<Output,
     val self = this
     return object : Store<Output, Key> {
         override suspend fun get(key: Key) = self.get(
-            StoreRequest.caced(key)
+            StoreRequest.cached(key, refresh = false)
         ).dataOrThrow()!!
 
         override suspend fun fresh(key: Key) = self.get(
@@ -62,7 +62,7 @@ fun <Key, Input, Output> PipelineStore<Key, Input, Output>.open(): Store<Output,
             // mapNotNull does not make compiler happy because Output : Any is not defined, hence,
             // hand rolled map not null :/
             self.stream(
-                StoreRequest(key, CacheType.MEMORY)
+                StoreRequest.skipMemory(key, true)
             )
                 .collect {
                     it.dataOrThrow()?.let {

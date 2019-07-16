@@ -56,13 +56,19 @@ class PipelinePersister<Key, Input, Output>(
                 }.castNonNull()
         } else {
             return reader(request.key)
-                // TODO: we need to get more information from the request to decide whether we
-                //  should refresh from network or not
-                .sideCollect(fetcher.stream(request)) { response: StoreResponse<Input> ->
-                    response.dataOrNull()?.let { data: Input ->
-                        writer(request.key, data)
+                ?.let {
+                    if (request.refresh) {
+                        // also request from backend
+                        it.sideCollect(fetcher.stream(request)) { response: StoreResponse<Input> ->
+                            response.dataOrNull()?.let { data: Input ->
+                                writer(request.key, data)
+                            }
+                        }
+                    } else {
+                        it
                     }
-                }.castNonNull()
+                }
+                .castNonNull()
         }
     }
 

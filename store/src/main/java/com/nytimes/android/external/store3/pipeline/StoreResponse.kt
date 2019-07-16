@@ -1,9 +1,9 @@
 package com.nytimes.android.external.store3.pipeline
 
 sealed class StoreResponse<Output> {
-    class LoadingResponse<Output>(val data: Output?) : StoreResponse<Output>()
-    class SuccessResponse<Output>(val data: Output) : StoreResponse<Output>()
-    class ErrorResponse<Output>(val error: Throwable, val data: Output?) : StoreResponse<Output>()
+    data class LoadingResponse<Output>(val data: Output?) : StoreResponse<Output>()
+    data class SuccessResponse<Output>(val data: Output) : StoreResponse<Output>()
+    data class ErrorResponse<Output>(val error: Throwable, val data: Output?) : StoreResponse<Output>()
 
     fun isError() = this is ErrorResponse
     fun isLoading() = this is LoadingResponse

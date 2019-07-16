@@ -5,6 +5,8 @@ import com.nytimes.android.external.store3.base.impl.MemoryPolicy
 import com.nytimes.android.external.store3.base.impl.StoreDefaults
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 
 @FlowPreview
@@ -16,7 +18,7 @@ internal class PipelineCacheStore<Key, Input, Output>(
         loader = { key: Key ->
             // TODO StoreRequest needs to be something different since cache rules might be
             // different in separate calls
-            delegate.get(StoreRequest.caced(key)).throwIfError()
+            delegate.get(StoreRequest.cached(key, refresh = false)).throwIfError()
         },
         memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
@@ -28,7 +30,19 @@ internal class PipelineCacheStore<Key, Input, Output>(
                     memCache.put(request.key, it)
                 }
         } else {
-            TODO("need info about where we want to refresh from")
+            @Suppress("RemoveExplicitTypeArguments")
+            return flow<StoreResponse<Output>> {
+                val cached = memCache.getIfPresent(request.key)?.dataOrNull()
+                emit(
+                    StoreResponse.LoadingResponse(
+                        data = cached
+                    )
+                )
+                delegate.stream(request).collect {
+                    memCache.put(request.key, it)
+                    emit(it)
+                }
+            }
         }
     }
 
