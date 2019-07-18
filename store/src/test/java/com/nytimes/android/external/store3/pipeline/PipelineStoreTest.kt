@@ -139,28 +139,28 @@ class PipelineStoreTest {
         )
     }
 
-    suspend fun PipelineStore<Int, *, String>.get(key: Int) = get(
+    suspend fun PipelineStore<Int, String>.get(key: Int) = get(
         StoreRequest.cached(
             key = key,
             refresh = false
         )
     )
 
-    suspend fun PipelineStore<Int, *, String>.streamCollect(key: Int) = stream(
+    suspend fun PipelineStore<Int, String>.streamCollect(key: Int) = stream(
         StoreRequest.cached(
             key = key,
             refresh = false
         )
     ).toList(mutableListOf())
 
-    suspend fun PipelineStore<Int, *, String>.streamCollectLimited(key: Int, limit : Int) = stream(
+    suspend fun PipelineStore<Int, String>.streamCollectLimited(key: Int, limit : Int) = stream(
         StoreRequest.cached(
             key = key,
             refresh = true
         )
     ).take(limit).toList(mutableListOf())
 
-    suspend fun PipelineStore<Int, *, String>.fresh(key: Int) = get(
+    suspend fun PipelineStore<Int, String>.fresh(key: Int) = get(
         StoreRequest.fresh(
             key = key
         )

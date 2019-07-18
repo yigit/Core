@@ -21,6 +21,9 @@ class PipelinePersister<Key, Input, Output>(
         } else {
             reader(request.key).singleOrNull()
         }
+        value?.let {
+            return it
+        }
         // skipped cache or cache is null
         val fetcherValue = fetcher.get(request)
         fetcherValue?.let {
