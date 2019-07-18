@@ -17,7 +17,7 @@ fun <Key, Output> beginPipeline(
 @FlowPreview
 fun <Key, Output> beginNonFlowingPipeline(
     fetcher: suspend (Key) -> Output
-): PipelineStore<Key, NoInput, Output> {
+): PipelineStore<Key, Output> {
     return PipelineFetcherStore {
         flow {
             emit(fetcher(it))
