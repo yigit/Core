@@ -24,12 +24,13 @@ internal class PipelineCacheStore<Key, Output>(
     override fun stream(request: StoreRequest<Key>): Flow<Output> {
         @Suppress("RemoveExplicitTypeArguments")
         return flow<Output> {
-            val cached = memCache.getIfPresent(request.key)
-            if (cached?.first?.covers(request) == true) {
-                cached.second?.let {
+            if (! (request.shouldSkipCache(CacheType.MEMORY) || request.shouldSkipCache(CacheType.DISK))) {
+                val cached = memCache.getIfPresent(request.key)
+                cached?.second?.let {
                     emit(it)
                 }
             }
+
             delegate.stream(request).collect {
                 memCache.put(request, it)
                 emit(it)
