@@ -1,10 +1,9 @@
 package com.nytimes.android.external.store3.pipeline
 
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.FlowPreview
+import com.nytimes.android.external.store3.base.impl.MemoryPolicy
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
 import org.assertj.core.api.Assertions.assertThat
@@ -99,14 +98,14 @@ class PipelineStoreTest {
             .withCache()
 
         assertThat(
-            pipeline.streamCollect(3)
+            pipeline.streamCollectLimited(key = 3, limit = 1)
         ).isEqualTo(
             listOf(
                 "three-1"
             )
         )
         assertThat(
-            pipeline.streamCollect(3)
+            pipeline.streamCollectLimited(key = 3, limit = 2)
         ).isEqualTo(
             listOf(
                 "three-1", "three-2"
@@ -137,6 +136,25 @@ class PipelineStoreTest {
         ).isEqualTo(
             "three-2"
         )
+    }
+
+    @Test
+    fun freshStriggersStream() = testScope.runBlockingTest {
+        val fetcher = FakeFetcher(
+                3 to "three-1",
+                3 to "three-2"
+        )
+        val pipeline = beginNonFlowingPipeline(fetcher::fetch)
+                .withCache()
+        val asyncStream = async {
+            pipeline
+                    .stream(StoreRequest.cached(key = 3, refresh = true))
+                    .take(2)
+                    .toList()
+        }
+        yield()
+        pipeline.get(StoreRequest.fresh(key = 3))
+        assertThat(asyncStream.await()).isEqualTo(listOf("three-1", "three-2"))
     }
 
     suspend fun PipelineStore<Int, String>.get(key: Int) = get(
