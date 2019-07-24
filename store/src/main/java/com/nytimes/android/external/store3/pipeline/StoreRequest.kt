@@ -10,8 +10,8 @@ data class StoreRequest<Key> private constructor(
      */
     private val skippedCaches: Int,
     /**
-     * If set to true, even if the data is returned by some cache step, Store will still execute
-     * the full pipeline to get new values while returning the cached value.
+     * If set to with stream requests, Store will always get fresh value from fetcher while also
+     * starting the stream from the local data (disk and/or memory cache)
      */
     val refresh: Boolean = false
 ) {
@@ -23,6 +23,7 @@ data class StoreRequest<Key> private constructor(
             prev.or(next.flag)
         }
 
+        // TODO figure out if any of these helper methods make sense
         fun <Key> fresh(key: Key) = StoreRequest(
             key = key,
             skippedCaches = allCaches,
