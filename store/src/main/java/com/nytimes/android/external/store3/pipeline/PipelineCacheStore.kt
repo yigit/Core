@@ -1,6 +1,6 @@
 package com.nytimes.android.external.store3.pipeline
 
-import com.com.nytimes.suspendCache.PipelineCache
+import com.com.nytimes.suspendCache.StoreCache
 import com.nytimes.android.external.store3.base.impl.MemoryPolicy
 import com.nytimes.android.external.store3.base.impl.StoreDefaults
 import kotlinx.coroutines.FlowPreview
@@ -13,7 +13,7 @@ internal class PipelineCacheStore<Key, Output>(
         private val delegate: PipelineStore<Key, Output>,
         memoryPolicy: MemoryPolicy? = null
 ) : PipelineStore<Key, Output> {
-    private val memCache = PipelineCache.from(
+    private val memCache = StoreCache.fromRequest<Key, Output?, StoreRequest<Key>>(
             loader = { request: StoreRequest<Key> ->
                 delegate.get(request)
             },
@@ -31,14 +31,17 @@ internal class PipelineCacheStore<Key, Output>(
             }
 
             delegate.stream(request).collect {
-                memCache.put(request, it)
+                memCache.put(request.key, it)
                 emit(it)
             }
         }
     }
 
     override suspend fun get(request: StoreRequest<Key>): Output? {
-        return memCache.get(request)
+        if (request.shouldSkipCache(CacheType.MEMORY)) {
+            return memCache.fresh(request.key, request)
+        }
+        return memCache.get(request.key, request)
     }
 
     override suspend fun clearMemory() {
