@@ -43,7 +43,7 @@ internal class RealPipelineStoreCache<K, V>(
         realCache.put(
             request.key, PipelineStoreRecord(
                 loader = loader,
-                precomputedValue = request to value
+                precomputedValue = value
             )
         )
     }
@@ -56,7 +56,7 @@ internal class RealPipelineStoreCache<K, V>(
         realCache.cleanUp()
     }
 
-    override suspend fun getIfPresent(key: K): Pair<StoreRequest<K>, V>? {
+    override suspend fun getIfPresent(key: K): V? {
         return realCache.getIfPresent(key)?.cachedValue()
     }
 }

@@ -13,7 +13,7 @@ interface PipelineCache<K, V> {
     suspend fun put(request: StoreRequest<K>, value: V)
     suspend fun invalidate(key: K)
     suspend fun clearAll()
-    suspend fun getIfPresent(key: K): Pair<StoreRequest<K>, V>?
+    suspend fun getIfPresent(key: K): V?
 
     companion object {
         fun <K, V> from(

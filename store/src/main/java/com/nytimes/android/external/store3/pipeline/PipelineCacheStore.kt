@@ -7,26 +7,25 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.onEach
 
 @FlowPreview
 internal class PipelineCacheStore<Key, Output>(
-    private val delegate: PipelineStore<Key, Output>,
-    memoryPolicy: MemoryPolicy? = null
+        private val delegate: PipelineStore<Key, Output>,
+        memoryPolicy: MemoryPolicy? = null
 ) : PipelineStore<Key, Output> {
     private val memCache = PipelineCache.from(
-        loader = { request: StoreRequest<Key> ->
-            delegate.get(request)
-        },
-        memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
+            loader = { request: StoreRequest<Key> ->
+                delegate.get(request)
+            },
+            memoryPolicy = memoryPolicy ?: StoreDefaults.memoryPolicy
     )
 
     override fun stream(request: StoreRequest<Key>): Flow<Output> {
         @Suppress("RemoveExplicitTypeArguments")
         return flow<Output> {
-            if (! (request.shouldSkipCache(CacheType.MEMORY) || request.shouldSkipCache(CacheType.DISK))) {
+            if (!request.shouldSkipCache(CacheType.MEMORY)) {
                 val cached = memCache.getIfPresent(request.key)
-                cached?.second?.let {
+                cached?.let {
                     emit(it)
                 }
             }
