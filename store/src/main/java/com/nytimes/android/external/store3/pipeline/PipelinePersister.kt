@@ -32,26 +32,33 @@ class PipelinePersister<Key, Input, Output>(
 
     @Suppress("UNCHECKED_CAST")
     override fun stream(request: StoreRequest<Key>): Flow<Output> {
-        if (request.shouldSkipCache(CacheType.DISK)) {
-            return fetcher.stream(request)
-                .switchMap {
-                    writer(request.key, it)
-                    reader(request.key)
-                }.castNonNull()
-        } else {
-            return reader(request.key).let {
-                    if (request.refresh) {
-                        // also request from backend
-                        it.sideCollect(fetcher.stream(request)) { response: Input ->
-                            response?.let { data: Input ->
-                                writer(request.key, data)
-                            }
-                        }
-                    } else {
-                        it
-                    }
+        return if (request.shouldSkipCache(CacheType.DISK)) {
+            fetcher.stream(request)
+                    .switchMap {
+                        writer(request.key, it)
+                        reader(request.key)
+                    }.castNonNull()
+        } else if (request.refresh) {
+            reader(request.key).sideCollect(fetcher.stream(request)) { response: Input? ->
+                response?.let { data: Input ->
+                    writer(request.key, data)
                 }
-                .castNonNull()
+            }.castNonNull()
+        } else {
+            reader(request.key).sideCollectMaybe(
+                    otherProducer = {
+                        if (it == null || request.refresh) {
+                            fetcher.stream(request)
+                        } else {
+                            null
+                        }
+                    },
+                    otherCollect = { response: Input ->
+                        response?.let { data: Input ->
+                            writer(request.key, data)
+                        }
+                    }
+            ).castNonNull()
         }
     }
 

@@ -46,7 +46,7 @@ fun <Key, Output> PipelineStore<Key, Output>.open(): Store<Output, Key> {
 //            StoreRequest.cached(key, refresh = false)
 //        )!!
         override suspend fun get(key: Key) = self.stream(
-                StoreRequest.cached(key, refresh = true)
+                StoreRequest.cached(key, refresh = false)
         ).take(1).toList().first()
 
         override suspend fun fresh(key: Key) = self.stream(

@@ -45,3 +45,27 @@ internal fun <T, R> Flow<T>.sideCollect(
         sideJob.cancelAndJoin()
     }
 }
+
+@FlowPreview
+internal fun <T, R> Flow<T>.sideCollectMaybe(
+        otherProducer: suspend (T?) -> Flow<R>?,
+        otherCollect: suspend (R) -> Unit
+) = flow {
+    coroutineScope {
+        val deferredFlow = CompletableDeferred<Flow<R>?>()
+        val sideJob = launch {
+            deferredFlow.await()?.collect {
+                otherCollect(it)
+            }
+        }
+        this@sideCollectMaybe.collect {
+            if (deferredFlow.isActive) {
+                // first item
+                deferredFlow.complete(otherProducer(it))
+            }
+            emit(it)
+        }
+        // when main flow ends, cancel the side channel.
+        sideJob.cancelAndJoin()
+    }
+}
