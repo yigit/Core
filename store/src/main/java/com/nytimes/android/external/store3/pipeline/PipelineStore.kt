@@ -21,12 +21,6 @@ interface PipelineStore<Key, Output> {
     fun stream(request: StoreRequest<Key>): Flow<Output>
 
     /**
-     * Return a single value for the given key.
-     */
-    // DO NOT auto delegate to stream, implementation for get and stream differ significantly
-    suspend fun get(request: StoreRequest<Key>): Output?
-
-    /**
      * Clear the memory cache of all entries
      */
     suspend fun clearMemory()
@@ -42,9 +36,6 @@ interface PipelineStore<Key, Output> {
 fun <Key, Output> PipelineStore<Key, Output>.open(): Store<Output, Key> {
     val self = this
     return object : Store<Output, Key> {
-//        override suspend fun get(key: Key) = self.get(
-//            StoreRequest.cached(key, refresh = false)
-//        )!!
         override suspend fun get(key: Key) = self.stream(
                 StoreRequest.cached(key, refresh = false)
         ).take(1).toList().first()
