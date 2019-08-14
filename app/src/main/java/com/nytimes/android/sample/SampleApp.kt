@@ -12,7 +12,6 @@ import com.nytimes.android.external.store3.base.impl.Store
 import com.nytimes.android.external.store3.base.impl.StoreBuilder
 import com.nytimes.android.external.store3.middleware.moshi.MoshiParserFactory
 import com.nytimes.android.external.store3.pipeline.*
-import com.nytimes.android.sample.data.model.Children
 import com.nytimes.android.sample.data.model.Post
 import com.nytimes.android.sample.data.model.RedditData
 import com.nytimes.android.sample.data.model.RedditDb
@@ -20,7 +19,6 @@ import com.nytimes.android.sample.data.remote.Api
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
 import okhttp3.ResponseBody
 import okio.BufferedSource
 import retrofit2.Retrofit
@@ -35,7 +33,7 @@ class SampleApp : Application() {
     lateinit var persistedStore: Store<RedditData, BarCode>
     lateinit var persistentPipelineStore: Store<RedditData, BarCode>
     lateinit var nonPersistentPipielineStore: Store<RedditData, BarCode>
-    lateinit var roomPipelineStore: Store<List<Post>, BarCode>
+    lateinit var roomPipelineStore: PipelineStore<String, List<Post>>
     val moshi = Moshi.Builder().build()
     lateinit var persister: Persister<BufferedSource, BarCode>
 
@@ -52,27 +50,15 @@ class SampleApp : Application() {
         roomPipelineStore = provideRoomPipelineStore()
     }
 
-    private fun provideRoomPipelineStore(): Store<List<Post>, BarCode> {
+    private fun provideRoomPipelineStore(): PipelineStore<String, List<Post>> {
         val api = provideRetrofit()
         val dao = provideInMemoryRoom().dao()
-        return beginNonFlowingPipeline { key: BarCode ->
-            api.fetchSubreddit(key.key, "10").await()
+        return beginNonFlowingPipeline { subreddit: String ->
+            api.fetchSubreddit(subreddit, "10").await()
         }.withPersister(
-                reader = { key: BarCode ->
-                    dao.getPosts(key.key).map {
-                        // we don't really know if we've never fetched a feed (because we don't
-                        // record). so for now, consider empty result as not-fetched :shrug:
-                        if (it.isEmpty()) {
-                            null
-                        } else {
-                            it
-                        }
-                    }
-                },
-                writer = { key: BarCode, posts: RedditData ->
-                    dao.savePosts(key.key, posts.data.children.map(Children::data))
-                }
-        ).open()
+                reader = dao::getPosts,
+                writer = dao::savePosts=
+        )
     }
 
     private fun provideInMemoryRoom() = Room
