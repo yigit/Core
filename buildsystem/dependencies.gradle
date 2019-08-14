@@ -63,6 +63,8 @@ ext.libraries = [
         supportCardView         : 'androidx.cardview:cardview:1.0.0',
         supportDesign           : 'com.google.android.material:material:1.0.0',
         supportRecyclerView     : 'androidx.recyclerview:recyclerview:1.0.0',
+        roomCompiler            : 'androidx.room:room-compiler:2.2.0-alpha02',
+        roomRuntime             : 'androidx.room:room-ktx:2.2.0-alpha02',
         picasso                 : "com.squareup.picasso:picasso:$versions.picasso",
         butterKnife             : "com.jakewharton:butterknife:$versions.butterKnife",
 

@@ -2,6 +2,7 @@ package com.nytimes.android.sample
 
 import android.app.Application
 import android.content.Context
+import androidx.room.Room
 import com.jakewharton.retrofit2.adapter.kotlin.coroutines.CoroutineCallAdapterFactory
 import com.nytimes.android.external.fs3.SourcePersisterFactory
 import com.nytimes.android.external.store3.base.Persister
@@ -11,11 +12,15 @@ import com.nytimes.android.external.store3.base.impl.Store
 import com.nytimes.android.external.store3.base.impl.StoreBuilder
 import com.nytimes.android.external.store3.middleware.moshi.MoshiParserFactory
 import com.nytimes.android.external.store3.pipeline.*
+import com.nytimes.android.sample.data.model.Children
+import com.nytimes.android.sample.data.model.Post
 import com.nytimes.android.sample.data.model.RedditData
+import com.nytimes.android.sample.data.model.RedditDb
 import com.nytimes.android.sample.data.remote.Api
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import okhttp3.ResponseBody
 import okio.BufferedSource
 import retrofit2.Retrofit
@@ -29,7 +34,8 @@ class SampleApp : Application() {
     lateinit var nonPersistedStore: Store<RedditData, BarCode>
     lateinit var persistedStore: Store<RedditData, BarCode>
     lateinit var persistentPipelineStore: Store<RedditData, BarCode>
-    lateinit var nonPersistentPipielineStore : Store<RedditData, BarCode>
+    lateinit var nonPersistentPipielineStore: Store<RedditData, BarCode>
+    lateinit var roomPipelineStore: Store<List<Post>, BarCode>
     val moshi = Moshi.Builder().build()
     lateinit var persister: Persister<BufferedSource, BarCode>
 
@@ -43,7 +49,35 @@ class SampleApp : Application() {
         persistedStore = providePersistedRedditStore();
         persistentPipelineStore = providePersistentPipelineStore()
         nonPersistentPipielineStore = provideMemoryCachedPipelineStore()
+        roomPipelineStore = provideRoomPipelineStore()
     }
+
+    private fun provideRoomPipelineStore(): Store<List<Post>, BarCode> {
+        val api = provideRetrofit()
+        val dao = provideInMemoryRoom().dao()
+        return beginNonFlowingPipeline { key: BarCode ->
+            api.fetchSubreddit(key.key, "10").await()
+        }.withPersister(
+                reader = { key: BarCode ->
+                    dao.getPosts(key.key).map {
+                        // we don't really know if we've never fetched a feed (because we don't
+                        // record). so for now, consider empty result as not-fetched :shrug:
+                        if (it.isEmpty()) {
+                            null
+                        } else {
+                            it
+                        }
+                    }
+                },
+                writer = { key: BarCode, posts: RedditData ->
+                    dao.savePosts(key.key, posts.data.children.map(Children::data))
+                }
+        ).open()
+    }
+
+    private fun provideInMemoryRoom() = Room
+            .inMemoryDatabaseBuilder(this, RedditDb::class.java)
+            .build()
 
     private fun initPersister() {
         try {
@@ -124,11 +158,11 @@ class SampleApp : Application() {
     private fun providePersistedPipelineStore(): Persister<BufferedSource, BarCode> {
         val delegate = newPersister()
         return object : Persister<BufferedSource, BarCode> {
-            override suspend fun read(key: BarCode): BufferedSource? = withContext(Dispatchers.IO){
+            override suspend fun read(key: BarCode): BufferedSource? = withContext(Dispatchers.IO) {
                 return@withContext try {
                     // TODO figure out why FSReader prefers to throw instead of returning null
                     delegate.read(key)
-                } catch (ex : FileNotFoundException) {
+                } catch (ex: FileNotFoundException) {
                     null
                 }
             }

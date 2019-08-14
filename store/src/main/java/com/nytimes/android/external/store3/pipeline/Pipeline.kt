@@ -5,6 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlin.experimental.ExperimentalTypeInference
 
 @FlowPreview
 fun <Key, Output> beginPipeline(
@@ -14,9 +15,10 @@ fun <Key, Output> beginPipeline(
 }
 
 // this really needs a better name :/
+@UseExperimental(ExperimentalTypeInference::class)
 @FlowPreview
 fun <Key, Output> beginNonFlowingPipeline(
-    fetcher: suspend (Key) -> Output
+    @BuilderInference fetcher: suspend (Key) -> Output
 ): PipelineStore<Key, Output> {
     return PipelineFetcherStore {
         flow {
@@ -51,7 +53,7 @@ fun <Key, Output> PipelineStore<Key, Output>.withCache(
 
 @FlowPreview
 fun <Key, OldOutput, NewOutput> PipelineStore<Key, OldOutput>.withPersister(
-    reader: (Key) -> Flow<NewOutput>,
+    reader: (Key) -> Flow<NewOutput?>,
     writer: suspend (Key, OldOutput) -> Unit,
     delete: (suspend (Key) -> Unit)? = null
 ): PipelineStore<Key, NewOutput> {

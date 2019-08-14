@@ -24,7 +24,7 @@ import kotlin.coroutines.CoroutineContext
 
 class PersistingStoreActivity : AppCompatActivity() {
     lateinit var postAdapter: PostAdapter
-    lateinit var persistedStore: Store<RedditData, BarCode>
+    lateinit var persistedStore: Store<List<Post>, BarCode>
     lateinit var moshi: Moshi
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,7 +38,7 @@ class PersistingStoreActivity : AppCompatActivity() {
         layoutManager.orientation = LinearLayoutManager.VERTICAL
         postRecyclerView.layoutManager = layoutManager
         postRecyclerView.adapter = postAdapter
-        persistedStore = (applicationContext as SampleApp).nonPersistentPipielineStore
+        persistedStore = (applicationContext as SampleApp).roomPipelineStore
         moshi = (applicationContext as SampleApp).moshi
         loadPosts()
     }
@@ -61,7 +61,8 @@ class PersistingStoreActivity : AppCompatActivity() {
                 }
                 null
             } ?: return@launchWhenStarted
-            showPosts(sanitizeData(redditData))
+//            showPosts(sanitizeData(redditData))
+            showPosts(redditData)
         }
     }
 
