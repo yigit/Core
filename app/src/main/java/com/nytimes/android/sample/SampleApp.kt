@@ -57,7 +57,7 @@ class SampleApp : Application() {
             api.fetchSubreddit(subreddit, "10").await()
         }.withPersister(
                 reader = dao::getPosts,
-                writer = dao::savePosts=
+                writer = dao::savePosts
         )
     }
 
