@@ -15,9 +15,9 @@ class PipelineConverterStore<Key, OldOutput, NewOutput>(
         private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()
 ) : PipelineStore<Key, NewOutput> {
 
-    override fun stream(request: StoreRequest<Key>): Flow<NewOutput> {
+    override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<NewOutput>> {
         return delegate.stream(request).map {
-            converter(request.key, it)
+            it.swapData(converter(request.key, it.requireData()))
         }
     }
 

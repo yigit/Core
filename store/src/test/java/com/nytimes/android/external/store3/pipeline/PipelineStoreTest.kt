@@ -1,5 +1,6 @@
 package com.nytimes.android.external.store3.pipeline
 
+import com.nytimes.android.external.store3.pipeline.StoreResponse.Success
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
@@ -25,11 +26,10 @@ class PipelineStoreTest {
         )
         val pipeline = beginNonFlowingPipeline(fetcher::fetch)
             .withCache()
-
-        assertThat(pipeline.get(3)).isEqualTo("three-1")
-        assertThat(pipeline.get(3)).isEqualTo("three-1")
-        assertThat(pipeline.fresh(3)).isEqualTo("three-2")
-        assertThat(pipeline.get(3)).isEqualTo("three-2")
+        assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
+        assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
+        assertThat(pipeline.fresh(3)).isEqualTo(Success("three-2"))
+        assertThat(pipeline.get(3)).isEqualTo(Success("three-2"))
     }
 
     @Test
@@ -46,11 +46,11 @@ class PipelineStoreTest {
             )
             .withCache()
 
-        assertThat(pipeline.get(3)).isEqualTo("three-1")
-        assertThat(pipeline.get(3)).isEqualTo("three-1")
-        assertThat(pipeline.fresh(3)).isEqualTo("three-2")
+        assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
+        assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
+        assertThat(pipeline.fresh(3)).isEqualTo(Success("three-2"))
 
-        assertThat(pipeline.get(3)).isEqualTo("three-2")
+        assertThat(pipeline.get(3)).isEqualTo(Success("three-2"))
     }
 
     @Test
@@ -74,7 +74,7 @@ class PipelineStoreTest {
                 limit = 1)
         ).isEqualTo(
             listOf(
-                "three-1"
+                Success("three-1")
             )
         )
         assertThat(
@@ -83,7 +83,7 @@ class PipelineStoreTest {
                 limit = 2)
         ).isEqualTo(
             listOf(
-                "three-1", "three-2"
+                Success("three-1"), Success("three-2")
             )
         )
     }
@@ -101,14 +101,14 @@ class PipelineStoreTest {
             pipeline.streamCollect(3)
         ).isEqualTo(
             listOf(
-                "three-1"
+                Success("three-1")
             )
         )
         assertThat(
             pipeline.streamCollect(3)
         ).isEqualTo(
             listOf(
-                "three-1", "three-2"
+                Success("three-1"), Success("three-2")
             )
         )
     }
@@ -124,17 +124,17 @@ class PipelineStoreTest {
         assertThat(
             pipeline.get(StoreRequest.skipMemory(3, false))
         ).isEqualTo(
-            "three-1"
+            Success("three-1")
         )
         assertThat(
             pipeline.get(StoreRequest.cached(3, false))
         ).isEqualTo(
-            "three-1"
+            Success("three-1")
         )
         assertThat(
             pipeline.get(StoreRequest.skipMemory(3, false))
         ).isEqualTo(
-            "three-2"
+            Success("three-2")
         )
     }
 
