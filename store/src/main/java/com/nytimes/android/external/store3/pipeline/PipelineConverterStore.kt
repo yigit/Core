@@ -11,14 +11,20 @@ private fun <Key, In, Out> castConverter(): suspend (Key, In) -> Out {
 }
 
 class PipelineConverterStore<Key, OldOutput, NewOutput>(
-        private val delegate: PipelineStore<Key, OldOutput>,
-        private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()
+    private val delegate: PipelineStore<Key, OldOutput>,
+    private val converter: (suspend (Key, OldOutput) -> NewOutput) = castConverter()
 ) : PipelineStore<Key, NewOutput> {
 
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<NewOutput>> {
-        return delegate.stream(request).map {
-            it.swapData(converter(request.key, it.requireData()))
-        }
+        return delegate.stream(request)
+            .map {
+                val data = it.dataOrNull()
+                if (data == null) {
+                    it.swapData<NewOutput>(null)
+                } else {
+                    it.swapData(converter(request.key, data))
+                }
+            }
     }
 
     override suspend fun clear(key: Key) {

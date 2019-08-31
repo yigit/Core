@@ -11,7 +11,7 @@ internal class PipelineCacheStore<Key, Output>(
     private val delegate: PipelineStore<Key, Output>,
     memoryPolicy: MemoryPolicy? = null
 ) : PipelineStore<Key, Output> {
-    private val memCache = StoreCache.fromRequest<Key, StoreResponse<Output>?, StoreRequest<Key>>(
+    private val memCache = StoreCache.fromRequest<Key, Output?, StoreRequest<Key>>(
         loader = {
             TODO(
                 """
@@ -26,16 +26,24 @@ internal class PipelineCacheStore<Key, Output>(
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
         @Suppress("RemoveExplicitTypeArguments")
         return flow<StoreResponse<Output>> {
+            var dispatchedLoading = false
             if (!request.shouldSkipCache(CacheType.MEMORY)) {
                 val cached = memCache.getIfPresent(request.key)
                 cached?.let {
-                    emit(it)
+                    dispatchedLoading = true
+                    emit(StoreResponse.Loading(it))
                 }
             }
 
             delegate.stream(request).collect {
-                memCache.put(request.key, it)
-                emit(it)
+                // save into cache if it has data
+                it.dataOrNull()?.let {
+                    memCache.put(request.key, it)
+                }
+                // dispatch it if it is not loading or we've not dispatched loading
+                if (!dispatchedLoading || it !is StoreResponse.Loading) {
+                    emit(it)
+                }
             }
         }
     }

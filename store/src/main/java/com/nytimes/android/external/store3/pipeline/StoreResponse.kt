@@ -19,20 +19,24 @@ sealed class StoreResponse<T> {
         }
     }
 
+    fun errorOrNull(): Throwable? {
+        return (this as? Error)?.error
+    }
+
     fun dataOrNull(): T? = when (this) {
         is Loading -> data
         is Error -> data
         is Success -> data
     }
 
-    internal fun <V> swapData(data: V): StoreResponse<V> {
+    internal fun <V> swapData(data: V?): StoreResponse<V> {
         // returns same type
         return when (this) {
             is Loading -> Loading(data)
             is Error -> Error(error, data)
-            is Success -> Success(data)
+            is Success -> data?.let {
+                Success(data)
+            } ?: throw IllegalArgumentException("data cannot be null for success response")
         }
     }
-
-
 }

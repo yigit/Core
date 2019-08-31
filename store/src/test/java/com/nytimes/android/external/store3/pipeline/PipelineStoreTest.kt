@@ -1,7 +1,9 @@
 package com.nytimes.android.external.store3.pipeline
 
+import com.nytimes.android.external.store3.pipeline.StoreResponse.Loading
 import com.nytimes.android.external.store3.pipeline.StoreResponse.Success
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -27,9 +29,9 @@ class PipelineStoreTest {
         val pipeline = beginNonFlowingPipeline(fetcher::fetch)
             .withCache()
         assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
-        assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
+        assertThat(pipeline.get(3)).isEqualTo(Loading("three-1"))
         assertThat(pipeline.fresh(3)).isEqualTo(Success("three-2"))
-        assertThat(pipeline.get(3)).isEqualTo(Success("three-2"))
+        assertThat(pipeline.get(3)).isEqualTo(Loading("three-2"))
     }
 
     @Test
@@ -47,10 +49,10 @@ class PipelineStoreTest {
             .withCache()
 
         assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
-        assertThat(pipeline.get(3)).isEqualTo(Success("three-1"))
+        assertThat(pipeline.get(3)).isEqualTo(Loading("three-1"))
         assertThat(pipeline.fresh(3)).isEqualTo(Success("three-2"))
 
-        assertThat(pipeline.get(3)).isEqualTo(Success("three-2"))
+        assertThat(pipeline.get(3)).isEqualTo(Loading("three-2"))
     }
 
     @Test
@@ -68,22 +70,27 @@ class PipelineStoreTest {
             )
             .withCache()
 
+        val first = pipeline.streamCollectLimited(
+            key = 3,
+            limit = 2
+        )
         assertThat(
-            pipeline.streamCollectLimited(
-                key = 3,
-                limit = 1)
+            first
         ).isEqualTo(
             listOf(
+                Loading<String>(),
                 Success("three-1")
             )
         )
+        val second = pipeline.streamCollectLimited(
+            key = 3,
+            limit = 2
+        )
         assertThat(
-            pipeline.streamCollectLimited(
-                key = 3,
-                limit = 2)
+            second
         ).isEqualTo(
             listOf(
-                Success("three-1"), Success("three-2")
+                Loading("three-1"), Success("three-2")
             )
         )
     }
@@ -98,17 +105,17 @@ class PipelineStoreTest {
             .withCache()
 
         assertThat(
-            pipeline.streamCollect(3)
+            pipeline.streamCollectLimited(3, limit = 2)
         ).isEqualTo(
             listOf(
-                Success("three-1")
+                Loading<String>(), Success("three-1")
             )
         )
         assertThat(
-            pipeline.streamCollect(3)
+            pipeline.streamCollectLimited(3, limit = 3)
         ).isEqualTo(
             listOf(
-                Success("three-1"), Success("three-2")
+                Loading("three-1"), Success("three-2")
             )
         )
     }
@@ -129,7 +136,7 @@ class PipelineStoreTest {
         assertThat(
             pipeline.get(StoreRequest.cached(3, false))
         ).isEqualTo(
-            Success("three-1")
+            Loading("three-1")
         )
         assertThat(
             pipeline.get(StoreRequest.skipMemory(3, false))
@@ -139,7 +146,7 @@ class PipelineStoreTest {
     }
 
     suspend fun PipelineStore<Int, String>.get(request : StoreRequest<Int>) =
-            this.stream(request).first()
+            this.stream(request).filter { it.dataOrNull() != null }.first()
 
     suspend fun PipelineStore<Int, String>.get(key: Int) = get(
         StoreRequest.cached(
@@ -147,13 +154,6 @@ class PipelineStoreTest {
             refresh = false
         )
     )
-
-    suspend fun PipelineStore<Int, String>.streamCollect(key: Int) = stream(
-        StoreRequest.cached(
-            key = key,
-            refresh = false
-        )
-    ).toList(mutableListOf())
 
     suspend fun PipelineStore<Int, String>.streamCollectLimited(key: Int, limit : Int) = stream(
         StoreRequest.cached(
