@@ -31,7 +31,13 @@ internal class PipelineCacheStore<Key, Output>(
                 val cached = memCache.getIfPresent(request.key)
                 cached?.let {
                     dispatchedLoading = true
-                    emit(StoreResponse.Loading(it))
+                    if (request.refresh) {
+                        emit(StoreResponse.Loading(it))
+                    } else {
+                        emit(StoreResponse.Success(it))
+                        throw AbortFlowException()
+                    }
+
                 }
             }
 

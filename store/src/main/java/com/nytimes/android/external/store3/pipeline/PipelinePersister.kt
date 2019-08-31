@@ -72,11 +72,10 @@ class PipelinePersister<Key, Input, Output>(
      * we want to stream from disk but also want to refresh. Immediately start fetcher when flow
      * starts.
      *
-     * If eager network is set to [false], we want to return from disk but also fetch from server if
-     * there is nothing in disk.
+     * If [alwaysTriggerNetwork] is set to [false], we want to return from disk but also fetch from
+     * the server if there is nothing in disk.
      * To do that, we need to see the first disk value and then decide to fetch or not.
      * in any case, we always return the Flow from reader.
-
      */
     private fun diskNetworkCombined(
         request: StoreRequest<Key>,
@@ -156,11 +155,19 @@ class PipelinePersister<Key, Input, Output>(
                             // no network, decide on nullness and eagerness
                             val disked: StoreResponse<Output>? = if (disk == null) {
                                 // no disk, no network; don't send anything
+                                // TODO what if network does not send Loading, we should handle
+                                //  that and maybe send loading here then try to avoid for dupes?
+                                //  right now, there is no API to provide it but when it comes
+                                //  (if it comes) we need to support it. Might use combine with
+                                //  attribution to avoid duplicate events?
                                 null
                             } else {
                                 // there is disk data, decide whether we'll call network and assume
                                 if (alwaysTriggerNetwork) {
-                                    StoreResponse.Loading<Output>(disk)
+                                    // wait for network first. it will send loading then we'll
+                                    // send the data
+                                    null
+                                    //StoreResponse.Loading<Output>(disk)
                                 } else {
                                     StoreResponse.Success<Output>(disk)
                                 }
