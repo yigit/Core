@@ -13,6 +13,7 @@ import kotlinx.android.synthetic.main.activity_store.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
 
 class RoomActivity : AppCompatActivity() {
     @ExperimentalCoroutinesApi
@@ -34,6 +35,10 @@ class RoomActivity : AppCompatActivity() {
                     refresh = true
                 )
             )
+                .map {
+                    it.throwIfError()
+                    it.dataOrNull()
+                }
             stream.catch {
                 // wait until UI shows up before showing an error and submitting an empty list
                 whenResumed {
