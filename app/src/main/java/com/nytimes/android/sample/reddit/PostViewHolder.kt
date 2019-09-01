@@ -1,7 +1,5 @@
 package com.nytimes.android.sample.reddit
 
-import android.text.Html
-import android.text.TextUtils
 import android.view.View
 import androidx.recyclerview.widget.RecyclerView
 import com.nytimes.android.sample.R
