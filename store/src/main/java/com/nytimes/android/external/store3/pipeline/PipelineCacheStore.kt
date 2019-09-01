@@ -37,7 +37,6 @@ internal class PipelineCacheStore<Key, Output>(
                         emit(StoreResponse.Success(it))
                         throw AbortFlowException()
                     }
-
                 }
             }
 
