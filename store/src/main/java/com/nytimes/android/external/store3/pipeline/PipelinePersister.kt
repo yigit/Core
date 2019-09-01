@@ -72,6 +72,24 @@ class PipelinePersister<Key, Input, Output>(
      * the server if there is nothing in disk.
      * To do that, we need to see the first disk value and then decide to fetch or not.
      * in any case, we always return the Flow from reader.
+     *
+     * How it works:
+     * There are 3 main Flows:
+     * a) Network flow which starts the network stream. It is guarded by `networkLock`
+     * b) Disk flow. It is controller by the `DiskCommand`s.
+     * c) Combination of (a) and (b) to dispatch values to the downstream.
+     *
+     * Initially, disk flow gets started with a DiskCommand.READ_FIRST. This tells it that this
+     * is the initial read from the disk. During this flow, if a `null` value arrives, it decides
+     * whether to unlock the Network Flow or not.
+     *
+     * When network flow runs (commanded by disk)
+     *  If Data Arrives -> It stops the disk flow first by sending a DiskCommand.STOP, awaits its
+     *  termination and then writes to disk and finally restarts the flow via DiskCommand.READ by
+     *  also passing the StoreResponse type.
+     *
+     *  If error or loading arrives, it simply dispatches it to the networkChannel which will be
+     *  consumed by the combined flow (c) to send to downstream along w/ the last read disk data.
      */
     private fun diskNetworkCombined(
         request: StoreRequest<Key>,
