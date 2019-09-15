@@ -1,5 +1,7 @@
 package com.nytimes.android.external.store3.pipeline
 
+import java.lang.Error
+
 /**
  * Holder for responses from Store.
  *
@@ -7,19 +9,29 @@ package com.nytimes.android.external.store3.pipeline
  * class to represent each response. This allows the flow to keep running even if an error happens
  * so that if there is an observable single source of truth, application can keep observing it.
  */
-sealed class StoreResponse<T> {
-    data class Loading<T>(val data: T? = null) : StoreResponse<T>()
-    data class Error<T>(val error: Throwable, val data: T? = null) : StoreResponse<T>()
-    data class Success<T>(val data: T) : StoreResponse<T>()
+sealed class StoreResponse<T>(
+) {
+    abstract val origin: ResponseOrigin
+
+    data class Loading<T>(override val origin: ResponseOrigin) : StoreResponse<T>()
+    data class Data<T>(val value: T, override val origin: ResponseOrigin) : StoreResponse<T>() {
+        fun <R> swapData(newData: R) = Data(
+            value = newData,
+            origin = origin
+        )
+    }
+
+    data class Error<T>(val error: Throwable, override val origin: ResponseOrigin) :
+        StoreResponse<T>()
 
     /**
      * Returns the available data or throws [NullPointerException] if there is no data.
      */
     fun requireData(): T {
         return when (this) {
-            is Loading -> data ?: throw NullPointerException("there is no data")
-            is Error -> data ?: throw error
-            is Success -> data
+            is Data -> value
+            is Error -> throw error
+            else -> throw NullPointerException("there is no data in $this")
         }
     }
 
@@ -42,23 +54,22 @@ sealed class StoreResponse<T> {
     }
 
     /**
-     * If there is data available (either [StoreResponse.Loading] with data or
-     * [StoreResponse.Success], returns it; otherwise returns null.
+     * If there is data available, returns it; otherwise returns null.
      */
     fun dataOrNull(): T? = when (this) {
-        is Loading -> data
-        is Error -> data
-        is Success -> data
+        is Data -> value
+        else -> null
     }
 
-    internal fun <V> swapData(data: V?): StoreResponse<V> {
-        // returns same type
-        return when (this) {
-            is Loading -> Loading(data)
-            is Error -> Error(error, data)
-            is Success -> data?.let {
-                Success(data)
-            } ?: throw IllegalArgumentException("data cannot be null for success response")
-        }
+    fun <R> swapType(): StoreResponse<R> = when (this) {
+        is Error -> Error(error, origin)
+        is Loading -> Loading(origin)
+        else -> throw IllegalStateException("cannot swap type for $this")
     }
+}
+
+enum class ResponseOrigin {
+    Cache,
+    Persister,
+    Fetcher
 }

@@ -14,16 +14,29 @@ internal class PipelineFetcherStore<Key, Output>(
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
         return flow {
             // first emit loading, then emit all values
-            emit(StoreResponse.Loading())
+            emit(
+                StoreResponse.Loading(
+                    origin = ResponseOrigin.Fetcher
+                )
+            )
             val fetcherFlow = fetcher(request.key)
                 .map {
-                    StoreResponse.Success(it)
+                    StoreResponse.Data(
+                        value = it,
+                        origin = ResponseOrigin.Fetcher
+                    )
                 }.catch<StoreResponse<Output>> {
-                    emit(StoreResponse.Error(it))
+                    emit(
+                        StoreResponse.Error(
+                            error = it,
+                            origin = ResponseOrigin.Fetcher
+                        )
+                    )
                 }
             emitAll(fetcherFlow)
         }
     }
+
     override suspend fun clear(key: Key) {
     }
 }

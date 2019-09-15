@@ -1,7 +1,10 @@
 package com.nytimes.android.external.store3.pipeline
 
+import com.nytimes.android.external.store3.pipeline.ResponseOrigin.Cache
+import com.nytimes.android.external.store3.pipeline.ResponseOrigin.Fetcher
+import com.nytimes.android.external.store3.pipeline.ResponseOrigin.Persister
+import com.nytimes.android.external.store3.pipeline.StoreResponse.Data
 import com.nytimes.android.external.store3.pipeline.StoreResponse.Loading
-import com.nytimes.android.external.store3.pipeline.StoreResponse.Success
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -33,13 +36,38 @@ class PipelineStoreTest {
         val pipeline = beginNonFlowingPipeline(fetcher::fetch)
             .withCache()
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(Loading(), Success("three-1"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ), Data(
+                    value = "three-1",
+                    origin = Fetcher
+                )
+            )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(Success("three-1"))
+            .assertItems(
+                Data(
+                    value = "three-1",
+                    origin = Cache
+                )
+            )
         pipeline.stream(StoreRequest.fresh(3))
-            .assertItems(Loading(), Success("three-2"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
+            )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(Success("three-2"))
+            .assertItems(
+                Data(
+                    value = "three-2",
+                    origin = Cache
+                )
+            )
     }
 
     @Test
@@ -56,14 +84,39 @@ class PipelineStoreTest {
             )
             .withCache()
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(Loading(), Success("three-1"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                )
+            )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(Success("three-1"))
-
+            .assertItems(
+                Data(
+                    value = "three-1",
+                    origin = Cache
+                )
+            )
         pipeline.stream(StoreRequest.fresh(3))
-            .assertItems(Loading(), Success("three-2"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
+            )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(Success("three-2"))
+            .assertItems(
+                Data(
+                    value = "three-2",
+                    origin = Cache
+                )
+            )
     }
 
     @Test
@@ -82,10 +135,34 @@ class PipelineStoreTest {
             .withCache()
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertItems(Loading(), Success("three-1"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                )
+            )
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertItems(Loading("three-1"), Success("three-2"))
+            .assertItems(
+                Data(
+                    value = "three-1",
+                    origin = Cache
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Persister
+                ),
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
+            )
     }
 
     @Test
@@ -98,10 +175,30 @@ class PipelineStoreTest {
             .withCache()
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertItems(Loading(), Success("three-1"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                )
+            )
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertItems(Loading("three-1"), Success("three-2"))
+            .assertItems(
+                Data(
+                    value = "three-1",
+                    origin = Cache
+                ),
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
+            )
     }
 
     @Test
@@ -114,10 +211,26 @@ class PipelineStoreTest {
             .withCache()
 
         pipeline.stream(StoreRequest.skipMemory(3, refresh = false))
-            .assertItems(Loading(), Success("three-1"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                )
+            )
 
         pipeline.stream(StoreRequest.skipMemory(3, refresh = false))
-            .assertItems(Loading(), Success("three-2"))
+            .assertItems(
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
+            )
     }
 
     @Test
@@ -135,16 +248,35 @@ class PipelineStoreTest {
             )
         pipeline.stream(StoreRequest.fresh(3))
             .assertItems(
-                Loading(),
-                Success("three-1"),
-                Success("three-2")
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
             )
-        pipeline.stream(StoreRequest.fresh(3))
 
         pipeline.stream(StoreRequest.cached(3, refresh = true)).assertItems(
-            Loading("three-2"),
-            Success("three-1"),
-            Success("three-2")
+            Data(
+                value = "three-2",
+                origin = Persister
+            ),
+            Loading(
+                origin = Fetcher
+            ),
+            Data(
+                value = "three-1",
+                origin = Fetcher
+            ),
+            Data(
+                value = "three-2",
+                origin = Fetcher
+            )
         )
     }
 
@@ -166,8 +298,13 @@ class PipelineStoreTest {
         pipeline
             .stream(StoreRequest.cached(3, refresh = true))
             .assertItems(
-                Loading(),
-                Loading("local-1")
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "local-1",
+                    origin = Persister
+                )
             )
     }
 
@@ -194,11 +331,25 @@ class PipelineStoreTest {
         pipeline
             .stream(StoreRequest.cached(3, refresh = true))
             .assertItems(
-                Loading(),
-                Loading("local-1"),
-                Success("three-1"),
-                Success("local-2"),
-                Success("three-2")
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "local-1",
+                    origin = Persister
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "local-2",
+                    origin = Persister
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
             )
     }
 
@@ -206,7 +357,7 @@ class PipelineStoreTest {
     fun errorTest() = testScope.runBlockingTest {
         val exception = IllegalArgumentException("wow")
         val persister = InMemoryPersister<Int, String>().asObservable()
-        val pipeline = beginNonFlowingPipeline<Int, String> { key : Int ->
+        val pipeline = beginNonFlowingPipeline<Int, String> { key: Int ->
             throw exception
         }.withPersister(
             reader = persister::flowReader,
@@ -218,14 +369,31 @@ class PipelineStoreTest {
         }
         pipeline.stream(StoreRequest.cached(key = 3, refresh = true))
             .assertItems(
-                Loading(),
-                StoreResponse.Error(exception, data = null),
-                StoreResponse.Error(exception, data = "local-1")
+                Loading(
+                    origin = Fetcher
+                ),
+                StoreResponse.Error(
+                    error = exception,
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "local-1",
+                    origin = Persister
+                )
             )
         pipeline.stream(StoreRequest.cached(key = 3, refresh = true))
             .assertItems(
-                Loading("local-1"),
-                StoreResponse.Error(exception, data = "local-1")
+                Data(
+                    value = "local-1",
+                    origin = Persister
+                ),
+                Loading(
+                    origin = Fetcher
+                ),
+                StoreResponse.Error(
+                    error = exception,
+                    origin = Fetcher
+                )
             )
     }
 
@@ -277,23 +445,20 @@ class PipelineStoreTest {
         private val data = mutableMapOf<Key, Output>()
 
         @Suppress("RedundantSuspendModifier")// for function reference
-        suspend fun read(key: Key) = data[key].also {
-            println("log read $key to $it")
-        }
+        suspend fun read(key: Key) = data[key]
 
         @Suppress("RedundantSuspendModifier") // for function reference
         suspend fun write(key: Key, output: Output) {
-            println("log write $key to $output")
             data[key] = output
         }
 
         suspend fun asObservable() = SimplePersisterAsFlowable(
-                reader = this::read,
-                writer = this::write
+            reader = this::read,
+            writer = this::write
         )
     }
 
-    private suspend fun <T> Flow<T>.assertItems(vararg expected : T) {
+    private suspend fun <T> Flow<T>.assertItems(vararg expected: T) {
         assertThat(this.take(expected.size).toList())
             .isEqualTo(expected.toList())
     }

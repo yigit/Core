@@ -6,18 +6,14 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 
 class PipelinePersister<Key, Input, Output>(
     private val fetcher: PipelineStore<Key, Input>,
@@ -45,21 +41,30 @@ class PipelinePersister<Key, Input, Output>(
             .flatMapLatest { response: StoreResponse<Input> ->
                 // explicit type is necessary for type resolution
                 flow<StoreResponse<Output>> {
-                    if (response is StoreResponse.Loading) {
-                        // send as is, nothing to save into database
-                        emit(StoreResponse.Loading())
-                    } else {
+                    val data = response.dataOrNull()
+                    if (data != null) {
                         // save into database first
                         writer(request.key, response.requireData())
                         // continue database data
+                        var first = true
                         val readerFlow: Flow<StoreResponse<Output>> =
                             reader(request.key).mapNotNull {
                                 it?.let {
-                                    // keep the response type to carry over error, if there is
-                                    response.swapData(it)
+                                    val origin = if (first) {
+                                        first = false
+                                        response.origin
+                                    } else {
+                                        ResponseOrigin.Persister
+                                    }
+                                    StoreResponse.Data(
+                                        value = it,
+                                        origin = origin
+                                    )
                                 }
                             }
                         emitAll(readerFlow)
+                    } else {
+                        emit(response.swapType())
                     }
                 }
             }
@@ -94,125 +99,73 @@ class PipelinePersister<Key, Input, Output>(
     private fun diskNetworkCombined(
         request: StoreRequest<Key>,
         alwaysTriggerNetwork: Boolean
-    ) = channelFlow<StoreResponse<Output>> {
+    ): Flow<StoreResponse<Output>> = channelFlow<StoreResponse<Output>> {
         // used to control the disk flow so that we can stop/start it.
         val diskCommands = Channel<DiskCommand>(capacity = Channel.RENDEZVOUS)
-        // events dispatched by network. Using Unit for value intentionally to avoid holding onto
-        // network response in memory
-        val networkChannel = Channel<StoreResponse<Unit>?>(capacity = Channel.RENDEZVOUS)
+        val fetcherCommands = Channel<FetcherCommand>(capacity = Channel.RENDEZVOUS)
         launch {
             // trigger first load
             diskCommands.send(DiskCommand.ReadFirst)
-            // send a null to the network events so that the `combine` flow can start running
-            networkChannel.send(null)
-        }
-        // block network until we decide what to do
-        val networkLock = CompletableDeferred<Boolean>()
-
-        launch {
-            if (networkLock.await()) {
-                // TODO get rid of this yield
-                //  right now, it is important for tests to avoid losing a loading command
-                //  since everything happens immediately, it may not have chance to dispatch
-                //  normally, it is unlikely to happen in an app and also it is OK to send
-                //  Success without loading. That being said, we could try to change the combine
-                //  operation to always consume all events to avoid this.
-                yield()
+            fetcherCommands.consumeAsFlow().collectLatest {
                 fetcher.stream(request).collect {
-                    val networkData = it.dataOrNull()
-                    if (networkData != null) {
+                    val data = it.dataOrNull()
+                    if (data != null) {
                         try {
-                            // before writing to disk, stop observing the disk and wait for the
-                            // ack to avoid dispatching the new value as `Loading`
-                            val stopAck = CompletableDeferred<Unit>()
-                            diskCommands.send(DiskCommand.Stop(stopAck))
-                            stopAck.await() // make sure disk stops before writing
-                            // WRITE
-                            writer(request.key, networkData)
+                            // stop disk first
+                            val ack = CompletableDeferred<Unit>()
+                            diskCommands.send(DiskCommand.Stop(ack))
+                            ack.await()
+                            writer(request.key, data)
                         } finally {
-                            // restart reading for the new data w/ the new state
-                            diskCommands.send(DiskCommand.Read(it))
+                            diskCommands.send(DiskCommand.Read(it.origin))
                         }
                     } else {
-                        networkChannel.send(it.swapData(Unit))
+                        send(it.swapType<Output>())
                     }
                 }
             }
         }
-
-        // This is how we read from disk. Not that we do not constantly read, we may need to
-        // restart it if new data arrives or STOP it before updating the disk, hence the commands.
-        val controlledDiskFlow = diskCommands.consumeAsFlow().flatMapLatest { command ->
+        diskCommands.consumeAsFlow().collectLatest { command ->
             when (command) {
-                is DiskCommand.ReadFirst -> {
-                    reader(request.key)
-                        .onEach { diskData ->
-                            if (diskData == null || alwaysTriggerNetwork) {
-                                if (networkLock.isActive) {
-                                    networkLock.complete(true)
-                                }
-                            } else {
-                                // don't go to network
-                                networkLock.complete(false)
-                            }
-                        }
-                        .map {
-                            command to it
-                        }
-                }
-                is DiskCommand.Read<*> -> {
-                    reader(request.key).map {
-                        command to it
-                    }
-                }
                 is DiskCommand.Stop -> {
                     command.ack.complete(Unit)
-                    // wait until start comes, which will after disk is updated
-                    emptyFlow()
                 }
-            }
-        }
-        val finalResult: Flow<StoreResponse<Output>?> =
-            controlledDiskFlow.combine(networkChannel.consumeAsFlow()) { (command, disk), network ->
-                when (command) {
-                    DiskCommand.ReadFirst -> {
-                        if (network == null) {
-                            // no network, decide on nullness and eagerness
-                            if (disk == null) {
-                                // no disk, no network; don't send anything
-                                // TODO what if network does not send Loading, we should handle
-                                //  that and maybe send loading here then try to avoid for dupes?
-                                //  right now, there is no API to provide it but when it comes
-                                //  (if it comes) we need to support it. Might use combine with
-                                //  attribution to avoid duplicate events?
-                                null
-                            } else {
-                                // there is disk data, decide whether we'll call network
-                                if (alwaysTriggerNetwork) {
-                                    // wait for network first. it will send loading then we'll
-                                    // send the data
-                                    null
-                                    //StoreResponse.Loading<Output>(disk)
-                                } else {
-                                    StoreResponse.Success(disk)
-                                }
-                            }
-                        } else {
-                            network.swapData(disk)
+                is DiskCommand.ReadFirst -> {
+                    reader(request.key).collectIndexed { index, diskData ->
+                        diskData?.let {
+                            send(
+                                StoreResponse.Data(
+                                    value = diskData,
+                                    origin = ResponseOrigin.Persister
+                                )
+                            )
+                        }
+
+                        if (index == 0 && (diskData == null || request.refresh)) {
+                            fetcherCommands.send(
+                                FetcherCommand.Fetch
+                            )
                         }
                     }
-                    is DiskCommand.Read<*> -> {
-                        // TODO what if network writes and then it gets deleted?
-                        //  should we accept nulls in Store as valid values ?
-                        (command as DiskCommand.Read<Input>).networkState.swapData(disk)
-                    }
-                    else -> {
-                        throw IllegalStateException("unexpected disk command $command")
+                }
+                is DiskCommand.Read -> {
+                    var fetcherOrigin : ResponseOrigin? = command.origin
+                    reader(request.key).collect { diskData ->
+                        if (diskData != null) {
+                            val origin = fetcherOrigin?.let {
+                                fetcherOrigin = null
+                                it
+                            } ?: ResponseOrigin.Persister
+                            send(
+                                StoreResponse.Data(
+                                    value = diskData,
+                                    origin = origin
+                                )
+                            )
+                        }
                     }
                 }
             }
-        finalResult.filterNotNull().collect {
-            send(it)
         }
     }
 
@@ -222,9 +175,14 @@ class PipelinePersister<Key, Input, Output>(
     }
 
     // used to control the disk flow when combined with network
-    sealed internal class DiskCommand {
+    internal sealed class DiskCommand {
         object ReadFirst : DiskCommand()
-        class Read<T>(val networkState: StoreResponse<T>) : DiskCommand()
+        class Read(val origin: ResponseOrigin) : DiskCommand()
         class Stop(val ack: CompletableDeferred<Unit>) : DiskCommand()
+    }
+
+    // used to control the disk flow when combined with network
+    internal sealed class FetcherCommand {
+        object Fetch : FetcherCommand()
     }
 }

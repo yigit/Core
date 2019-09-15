@@ -18,11 +18,10 @@ class PipelineConverterStore<Key, OldOutput, NewOutput>(
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<NewOutput>> {
         return delegate.stream(request)
             .map {
-                val data = it.dataOrNull()
-                if (data == null) {
-                    it.swapData<NewOutput>(null)
+                if (it is StoreResponse.Data) {
+                    it.swapData(converter(request.key, it.value))
                 } else {
-                    it.swapData(converter(request.key, data))
+                    it.swapType<NewOutput>()
                 }
             }
     }
