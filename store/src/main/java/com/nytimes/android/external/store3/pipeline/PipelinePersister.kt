@@ -26,10 +26,7 @@ class PipelinePersister<Key, Input, Output>(
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
         return when {
             request.shouldSkipCache(CacheType.DISK) -> fetchSkippingCache(request)
-            else -> diskNetworkCombined(
-                request = request,
-                alwaysTriggerNetwork = request.refresh
-            )
+            else -> diskNetworkCombined(request)
         }
     }
 
@@ -73,35 +70,25 @@ class PipelinePersister<Key, Input, Output>(
     /**
      * We want to stream from disk but also want to refresh. If requested or necessary.
      *
-     * If [alwaysTriggerNetwork] is set to [false], we want to return from disk but also fetch from
-     * the server if there is nothing in disk.
      * To do that, we need to see the first disk value and then decide to fetch or not.
      * in any case, we always return the Flow from reader.
      *
      * How it works:
-     * There are 3 main Flows:
-     * a) Network flow which starts the network stream. It is guarded by `networkLock`
-     * b) Disk flow. It is controller by the `DiskCommand`s.
-     * c) Combination of (a) and (b) to dispatch values to the downstream.
+     * We start by reading the disk. If first response from disk is `null` OR `request.refresh`
+     * is set to `true`, we start fetcher flow.
      *
-     * Initially, disk flow gets started with a DiskCommand.READ_FIRST. This tells it that this
-     * is the initial read from the disk. During this flow, if a `null` value arrives, it decides
-     * whether to unlock the Network Flow or not.
-     *
-     * When network flow runs (commanded by disk)
-     *  If Data Arrives -> It stops the disk flow first by sending a DiskCommand.STOP, awaits its
-     *  termination and then writes to disk and finally restarts the flow via DiskCommand.READ by
-     *  also passing the StoreResponse type.
-     *
-     *  If error or loading arrives, it simply dispatches it to the networkChannel which will be
-     *  consumed by the combined flow (c) to send to downstream along w/ the last read disk data.
+     * When fetcher emits data, if it is [StoreResponse.Error] or [StoreResponse.Loading], it
+     * directly goes to the downstream.
+     * If it is [StoreResponse.Data], we first stop the disk flow, write the new data to disk and
+     * restart the disk flow. On restart, disk-flow sets the first emissions `origin` to the
+     * `origin` set by the fetcher. subsequent reads use origin [ResponseOrigin.Persister].
      */
     private fun diskNetworkCombined(
-        request: StoreRequest<Key>,
-        alwaysTriggerNetwork: Boolean
-    ): Flow<StoreResponse<Output>> = channelFlow<StoreResponse<Output>> {
+        request: StoreRequest<Key>
+    ): Flow<StoreResponse<Output>> = channelFlow {
         // used to control the disk flow so that we can stop/start it.
         val diskCommands = Channel<DiskCommand>(capacity = Channel.RENDEZVOUS)
+        // used to control the network flow so that we can decide if we want to start it
         val fetcherCommands = Channel<FetcherCommand>(capacity = Channel.RENDEZVOUS)
         launch {
             // trigger first load

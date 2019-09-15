@@ -11,9 +11,19 @@ import java.lang.Error
  */
 sealed class StoreResponse<T>(
 ) {
+    /**
+     * Represents the source of the Response.
+     */
     abstract val origin: ResponseOrigin
 
+    /**
+     * Loading event dispatched by a Pipeline
+     */
     data class Loading<T>(override val origin: ResponseOrigin) : StoreResponse<T>()
+
+    /**
+     * Data dispatched by a pipeline
+     */
     data class Data<T>(val value: T, override val origin: ResponseOrigin) : StoreResponse<T>() {
         fun <R> swapData(newData: R) = Data(
             value = newData,
@@ -21,6 +31,9 @@ sealed class StoreResponse<T>(
         )
     }
 
+    /**
+     * Error dispatched by a pipeline
+     */
     data class Error<T>(val error: Throwable, override val origin: ResponseOrigin) :
         StoreResponse<T>()
 
@@ -61,15 +74,29 @@ sealed class StoreResponse<T>(
         else -> null
     }
 
-    fun <R> swapType(): StoreResponse<R> = when (this) {
+    internal fun <R> swapType(): StoreResponse<R> = when (this) {
         is Error -> Error(error, origin)
         is Loading -> Loading(origin)
         else -> throw IllegalStateException("cannot swap type for $this")
     }
 }
 
+/**
+ * Represents the origin for a [StoreResponse].
+ */
 enum class ResponseOrigin {
+    /**
+     * [StoreResponse] is sent from the cache, possibly created via [PipelineStore.withCache].
+     */
     Cache,
+    /**
+     * [StoreResponse] is sent from the persister, possibly created via
+     * [PipelineStore.withPersister] or [PipelineStore.withNonFlowPersister].
+     */
     Persister,
+    /**
+     * [StoreResponse] is sent from a fetcher, possibly created via
+     * [beginNonFlowingPipeline] or [beginPipeline].
+     */
     Fetcher
 }

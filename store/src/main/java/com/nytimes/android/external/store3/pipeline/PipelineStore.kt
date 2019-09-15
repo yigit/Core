@@ -42,7 +42,9 @@ fun <Key, Output> PipelineStore<Key, Output>.open(): Store<Output, Key> {
         override fun stream(): Flow<Pair<Key, Output>> = TODO("not supported")
 
         override fun stream(key: Key): Flow<Output> = self.stream(
-            StoreRequest.skipMemory(key, true)
+            StoreRequest.skipMemory(
+                key = key,
+                refresh = true)
         ).transform {
             it.throwIfError()
             it.dataOrNull()?.let {
