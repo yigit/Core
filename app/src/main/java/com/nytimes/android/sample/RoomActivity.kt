@@ -11,8 +11,7 @@ import com.nytimes.android.external.store3.pipeline.ResponseOrigin
 import com.nytimes.android.external.store3.pipeline.StoreRequest
 import com.nytimes.android.external.store3.pipeline.StoreResponse
 import com.nytimes.android.sample.reddit.PostAdapter
-import kotlinx.android.synthetic.main.activity_room_store.pullToRefresh
-import kotlinx.android.synthetic.main.activity_room_store.root
+import kotlinx.android.synthetic.main.activity_room_store.*
 import kotlinx.android.synthetic.main.activity_store.postRecyclerView
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -33,7 +32,6 @@ class RoomActivity : AppCompatActivity() {
         setContentView(R.layout.activity_room_store)
         setSupportActionBar(findViewById<View>(R.id.toolbar) as Toolbar)
         initUI()
-
     }
 
     @ObsoleteCoroutinesApi
@@ -49,11 +47,9 @@ class RoomActivity : AppCompatActivity() {
         }
         val storeState = StoreState((application as SampleApp).roomPipeline)
         lifecycleScope.launchWhenStarted {
-            storeState.setKey("aww")
-
             fun refresh() {
                 launch {
-                    storeState.setKey("aww")
+                    storeState.setKey(subredditInput.text.toString())
                 }
             }
 
@@ -76,6 +72,13 @@ class RoomActivity : AppCompatActivity() {
                     }
                 }
             }
+            if (subredditInput.text.toString().trim() == "") {
+                subredditInput.setText("aww")
+            }
+            fetchButton.setOnClickListener {
+                refresh()
+            }
+            refresh()
             storeState.data.collect {
                 setAdapterIfNotSet()
                 adapter.submitList(it)
