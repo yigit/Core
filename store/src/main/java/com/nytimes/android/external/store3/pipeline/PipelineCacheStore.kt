@@ -37,7 +37,7 @@ internal class PipelineCacheStore<Key, Output>(
                         )
                     )
                     if (!request.refresh) {
-                        throw AbortFlowException()
+                        return@flow
                     }
                 }
             }

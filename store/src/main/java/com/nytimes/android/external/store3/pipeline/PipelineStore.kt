@@ -1,21 +1,14 @@
 package com.nytimes.android.external.store3.pipeline
 
 import com.nytimes.android.external.store3.base.impl.Store
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.transform
 
-// taken from
-// https://github.com/Kotlin/kotlinx.coroutines/blob/7699a20982c83d652150391b39567de4833d4253/kotlinx-coroutines-core/js/src/flow/internal/FlowExceptions.kt
-internal class AbortFlowException :
-    CancellationException("Flow was aborted, no more elements needed")
-
 // possible replacement for [Store] as an internal only representation
 // if this class becomes public, should probaly be named IntermediateStore to distingush from
 // Store and also clarify that it still needs to be built/open? (how do we ensure?)
-
 interface PipelineStore<Key, Output> {
     /**
      * Return a flow for the given key

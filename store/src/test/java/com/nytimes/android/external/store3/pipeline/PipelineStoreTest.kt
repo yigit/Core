@@ -36,7 +36,7 @@ class PipelineStoreTest {
         val pipeline = beginNonFlowingPipeline(fetcher::fetch)
             .withCache()
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(
+            .assertCompleteStream(
                 Loading(
                     origin = Fetcher
                 ), Data(
@@ -45,7 +45,7 @@ class PipelineStoreTest {
                 )
             )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertItems(
+            .assertCompleteStream(
                 Data(
                     value = "three-1",
                     origin = Cache
@@ -175,7 +175,7 @@ class PipelineStoreTest {
             .withCache()
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertItems(
+            .assertCompleteStream(
                 Loading(
                     origin = Fetcher
                 ),
@@ -186,7 +186,7 @@ class PipelineStoreTest {
             )
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertItems(
+            .assertCompleteStream(
                 Data(
                     value = "three-1",
                     origin = Cache
@@ -211,7 +211,7 @@ class PipelineStoreTest {
             .withCache()
 
         pipeline.stream(StoreRequest.skipMemory(3, refresh = false))
-            .assertItems(
+            .assertCompleteStream(
                 Loading(
                     origin = Fetcher
                 ),
@@ -222,7 +222,7 @@ class PipelineStoreTest {
             )
 
         pipeline.stream(StoreRequest.skipMemory(3, refresh = false))
-            .assertItems(
+            .assertCompleteStream(
                 Loading(
                     origin = Fetcher
                 ),
@@ -458,8 +458,22 @@ class PipelineStoreTest {
         )
     }
 
+    /**
+     * Asserts only the [expected] items by just taking that many from the stream
+     *
+     * Use this when Pipeline has an infinite part (e.g. Persister or a never ending fetcher)
+     */
     private suspend fun <T> Flow<T>.assertItems(vararg expected: T) {
         assertThat(this.take(expected.size).toList())
+            .isEqualTo(expected.toList())
+    }
+
+    /**
+     * Takes all elements from the stream and asserts them.
+     * Use this if test does not have an infinite flow (e.g. no persister or no infinite fetcher)
+     */
+    private suspend fun <T> Flow<T>.assertCompleteStream(vararg expected: T) {
+        assertThat(this.toList())
             .isEqualTo(expected.toList())
     }
 }
