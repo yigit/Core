@@ -6,6 +6,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.snackbar.Snackbar
+import com.nytimes.android.external.store3.pipeline.PipelineStore
+import com.nytimes.android.external.store3.pipeline.ResponseOrigin
 import com.nytimes.android.external.store3.pipeline.StoreRequest
 import com.nytimes.android.external.store3.pipeline.StoreResponse
 import com.nytimes.android.sample.reddit.PostAdapter
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.launch
 
 @FlowPreview
@@ -44,28 +47,27 @@ class RoomActivity : AppCompatActivity() {
                 postRecyclerView.adapter = adapter
             }
         }
+        val storeState = StoreState((application as SampleApp).roomPipeline)
         lifecycleScope.launchWhenStarted {
-            val errors = Channel<String?>(Channel.CONFLATED)
-            // use another channel to trigger refresh
-            val refreshTrigger = Channel<Unit>(Channel.CONFLATED).also {
-                it.send(Unit)
-            }
+            storeState.setKey("aww")
 
             fun refresh() {
                 launch {
-                    // clear errors
-                    errors.send(null)
-                    refreshTrigger.send(Unit)
+                    storeState.setKey("aww")
                 }
             }
 
             pullToRefresh.setOnRefreshListener {
                 refresh()
             }
-
             launch {
-                errors.consumeAsFlow().collect {
-                    it?.let {
+                storeState.loading.collect {
+                    pullToRefresh.isRefreshing = it
+                }
+            }
+            launch {
+                storeState.errors.collect {
+                    if (it != "") {
                         Snackbar.make(root, it, Snackbar.LENGTH_INDEFINITE).setAction(
                             "refresh"
                         ) {
@@ -74,25 +76,52 @@ class RoomActivity : AppCompatActivity() {
                     }
                 }
             }
-            refreshTrigger.consumeAsFlow().flatMapLatest {
-                (application as SampleApp).roomPipeline.stream(
-                    StoreRequest.cached(
-                        key = "aww",
-                        refresh = true
-                    )
+            storeState.data.collect {
+                setAdapterIfNotSet()
+                adapter.submitList(it)
+            }
+        }
+    }
+}
+
+/**
+ * This class should possibly be moved to a helper library but needs more API work before that.
+ */
+internal class StoreState<Key, Output>(
+    private val store : PipelineStore<Key, Output>
+) {
+    private val keyFlow = Channel<Key>(capacity = Channel.CONFLATED)
+    private val _errors = Channel<String>(capacity = Channel.CONFLATED)
+    val errors
+        get() = _errors.consumeAsFlow()
+    private val _loading = Channel<Boolean>(capacity = Channel.CONFLATED)
+    val loading
+        get() = _loading.consumeAsFlow()
+
+    suspend fun setKey(key : Key) {
+        _errors.send("")
+        _loading.send(true)
+        keyFlow.send(key)
+    }
+
+    val data = keyFlow.consumeAsFlow().flatMapLatest { key ->
+        store.stream(
+            StoreRequest.cached(
+                key = key,
+                refresh = true
+            )
+        ).onEach {
+            if (it.origin == ResponseOrigin.Fetcher) {
+                _loading.send(
+                    it is StoreResponse.Loading
                 )
-            }.onEach {
-                // if there is an error, send it to the error channel
-                it.errorOrNull()?.let {
-                    errors.send(it.localizedMessage)
-                }
-            }.collect {
-                it.dataOrNull()?.let {
-                    // don't set adapter unless adapter has data so that RV can recover scroll pos
-                    setAdapterIfNotSet()
-                }
-                adapter.submitList(it.dataOrNull())
-                pullToRefresh.isRefreshing = it is StoreResponse.Loading
+            }
+            if (it is StoreResponse.Error) {
+                _errors.send(it.error.localizedMessage)
+            }
+        }.transform {
+            if (it is StoreResponse.Data) {
+                emit(it.value)
             }
         }
     }
