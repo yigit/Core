@@ -8,9 +8,13 @@ import com.nytimes.android.external.store3.pipeline.StoreResponse.Loading
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.retry
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -21,6 +25,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import java.io.IOException
 
 @ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
@@ -68,6 +73,21 @@ class PipelineStoreTest {
                     origin = Cache
                 )
             )
+    }
+
+    @Test
+    fun deleteme() {
+        flowOf("a", "B", "c")
+            .retryWhen { cause, attempt ->
+                if (attempt < 10 && cause is IOException) {
+                    emit("error: ${cause.message}")
+                    delay(1_000)
+                    true
+                } else {
+                    emit("cannot get value")
+                    false
+                }
+            }
     }
 
     @Test
@@ -412,68 +432,4 @@ class PipelineStoreTest {
             key = key
         )
     )
-
-    private class FlowingFakeFetcher<Key, Output>(
-        vararg val responses: Pair<Key, Output>
-    ) {
-        fun createFlow(key: Key) = flow {
-            responses.filter {
-                it.first == key
-            }.forEach {
-                emit(it.second)
-                delay(1)
-            }
-        }
-    }
-
-    private class FakeFetcher<Key, Output>(
-        vararg val responses: Pair<Key, Output>
-    ) {
-        private var index = 0
-        @Suppress("RedundantSuspendModifier") // needed for function reference
-        suspend fun fetch(key: Key): Output {
-            if (index >= responses.size) {
-                throw AssertionError("unexpected fetch request")
-            }
-            val pair = responses[index++]
-            assertThat(pair.first).isEqualTo(key)
-            return pair.second
-        }
-    }
-
-    private class InMemoryPersister<Key, Output> {
-        private val data = mutableMapOf<Key, Output>()
-
-        @Suppress("RedundantSuspendModifier")// for function reference
-        suspend fun read(key: Key) = data[key]
-
-        @Suppress("RedundantSuspendModifier") // for function reference
-        suspend fun write(key: Key, output: Output) {
-            data[key] = output
-        }
-
-        suspend fun asObservable() = SimplePersisterAsFlowable(
-            reader = this::read,
-            writer = this::write
-        )
-    }
-
-    /**
-     * Asserts only the [expected] items by just taking that many from the stream
-     *
-     * Use this when Pipeline has an infinite part (e.g. Persister or a never ending fetcher)
-     */
-    private suspend fun <T> Flow<T>.assertItems(vararg expected: T) {
-        assertThat(this.take(expected.size).toList())
-            .isEqualTo(expected.toList())
-    }
-
-    /**
-     * Takes all elements from the stream and asserts them.
-     * Use this if test does not have an infinite flow (e.g. no persister or no infinite fetcher)
-     */
-    private suspend fun <T> Flow<T>.assertCompleteStream(vararg expected: T) {
-        assertThat(this.toList())
-            .isEqualTo(expected.toList())
-    }
 }
