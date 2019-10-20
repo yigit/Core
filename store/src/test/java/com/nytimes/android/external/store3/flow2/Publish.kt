@@ -45,7 +45,7 @@ class SharedFlow<T>(
 
     fun create(): Flow<T> {
         return flow {
-            val channel = Channel<Message.DispatchValue<T>>(Channel.RENDEZVOUS)
+            val channel = Channel<Message.DispatchValue<T>>(Channel.UNLIMITED)
             try {
                 channelManager.send(Message.AddChannel(channel))
                 channel.consumeEach {
