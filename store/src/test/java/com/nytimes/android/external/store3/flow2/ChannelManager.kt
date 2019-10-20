@@ -13,6 +13,9 @@ sealed class Message<T> {
         Message<T>()
 }
 
+// TODO
+//  when cleaned up, check for channels that never received a value and instead of closing them
+//  report them back to be re-used in another flow
 /**
  * This actor helps tracking active channels and is able to dispatch values to each of them
  * in parallel. As soon as one of them receives the value, the ack in the dispatch message is
