@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
 class EndlessPublishFlow<T>(
     private val scope: CoroutineScope,
     private val creator: () -> Flow<T>
-) {
+) : Publish<T> {
     private val flowMutex = Mutex()
     private val stateMutex = Mutex()
     private var activeJob = AtomicReference<Job>(IDLE_JOB)
@@ -97,7 +97,7 @@ class EndlessPublishFlow<T>(
         }
     }
 
-    fun create(): Flow<T> {
+    override fun create(): Flow<T> {
         return flow<T> {
             val currentChannel = Channel<Emission<T>>(Channel.UNLIMITED)
             try {
