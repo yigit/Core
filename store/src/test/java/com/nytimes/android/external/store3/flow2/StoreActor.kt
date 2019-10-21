@@ -29,10 +29,10 @@ abstract class StoreActor<T>(
         ack.await()
     }
 
-    fun offer(msg: T) {
+    fun offer(msg: T) : Boolean {
         val ack = CompletableDeferred<Unit>()
         val packet = Packet(msg, ack)
-        inboundChannel.offer(packet)
+        return inboundChannel.offer(packet)
     }
 
     suspend fun close() {

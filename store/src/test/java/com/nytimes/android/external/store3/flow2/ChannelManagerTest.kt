@@ -17,15 +17,17 @@ import org.junit.runners.JUnit4
 @RunWith(JUnit4::class)
 class ChannelManagerTest {
     private val scope = TestCoroutineScope()
-    private val manager = ChannelManager<String>(scope)
+    private val manager = ChannelManager<String>(scope, {}) { _, restart ->
+        check(!restart)
+    }
 
     @Test
     fun simple() = scope.runBlockingTest {
         val collection = async {
-            val channel = Channel<Message.DispatchValue<String>>(Channel.RENDEZVOUS)
+            val channel = Channel<Message.DispatchValue<String>>(Channel.UNLIMITED)
             try {
                 manager.send(Message.AddChannel(channel))
-                channel.consumeAsFlow().take(2).toList()
+                channel.consumeAsFlow().take(2).toList().map { it.value }
             } finally {
                 manager.send(Message.RemoveChannel(channel))
             }

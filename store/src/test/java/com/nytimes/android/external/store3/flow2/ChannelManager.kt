@@ -22,17 +22,24 @@ sealed class Message<T> {
  * completed so that the sender can continue for the next item.
  */
 class ChannelManager<T>(
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val onActive: (ChannelManager<T>) -> Unit,
+    private val onClosed : suspend (/*has leftovers*/ChannelManager<T>, Boolean) -> Unit
 ) : StoreActor<Message<T>>(scope) {
+    private var next = CompletableDeferred<ChannelManager<T>>()
     private val _hasChannelAck = CompletableDeferred<Unit>()
     private val _lostAllChannelsAck = CompletableDeferred<Unit>()
-
+    private lateinit var leftovers : MutableList<Channel<Message.DispatchValue<T>>>
+    // set when we first dispatch a value to be able to track leftovers
+    private var dispatchedValue = false
     val finished
         get() : Deferred<Unit> = _lostAllChannelsAck
     val active
         get() : Deferred<Unit> = _hasChannelAck
 
-    private val channels = mutableListOf<Channel<Message.DispatchValue<T>>>()
+    suspend fun next() = next.await()
+
+    private val channels = mutableListOf<ChannelEntry<T>>()
     override suspend fun handle(msg: Message<T>) {
         log("received message $msg")
         when (msg) {
@@ -45,20 +52,39 @@ class ChannelManager<T>(
 
     private suspend fun doCleanup() {
         // TODO should send reason if src flow failed
+        val leftovers = mutableListOf<Channel<Message.DispatchValue<T>>>()
         channels.forEach {
-            it.close()
+            if (it.receivedValue) {
+                it.channel.close()
+            } else if (dispatchedValue) {
+                // we dispatched a value but this channel didn't receive so put it into leftovers
+                leftovers.add(it.channel)
+            } else {
+                // upstream didn't dispatch
+                it.channel.close()
+            }
         }
+        this.leftovers = leftovers // keep leftovers, they'll be cleaned in setNext of the next one
+        channels.clear() // empty references
         close()
+        _lostAllChannelsAck.complete(Unit)
+        onClosed(this, leftovers.isNotEmpty())
     }
 
     private suspend fun doDispatch(msg: Message.DispatchValue<T>) {
+        dispatchedValue = true
         channels.forEach {
-            it.send(msg)
+            it.receivedValue = true
+            it.channel.send(msg)
         }
     }
 
     private fun doRemove(channel: Channel<Message.DispatchValue<T>>) {
-        if (channels.remove(channel)) {
+        val index = channels.indexOfFirst {
+            it.channel === channel
+        }
+        if (index >= 0) {
+            channels.removeAt(index)
             if (channels.isEmpty()) {
                 _lostAllChannelsAck.complete(Unit)
             }
@@ -66,9 +92,37 @@ class ChannelManager<T>(
     }
 
     private fun doAdd(channel: Channel<Message.DispatchValue<T>>) {
-        channels.add(channel)
-        if (channels.size == 1) {
+        val new = channels.none {
+            it.channel === channel
+        }
+        check(new) {
+            "$channel is already in the list."
+        }
+        channels.add(ChannelEntry(channel))
+        if (_hasChannelAck.isActive && channels.size == 1) {
             _hasChannelAck.complete(Unit)
+            onActive(this)
         }
     }
+
+    fun setNext(channelManager: ChannelManager<T>): Unit {
+        check(!next.isCompleted) {
+            "next is already set!!!"
+        }
+        next.complete(channelManager)
+        // we don't check for closed here because it shouldn't be closed by now
+        leftovers.forEach {
+            // TODO leftover needs to know about this to unsub from the right one!
+            val offered = channelManager.offer(Message.AddChannel(it))
+            check(offered) {
+                "couldn't carry over subscriber to the next"
+            }
+        }
+        leftovers.clear()
+    }
+
+    private class ChannelEntry<T>(
+        val channel: Channel<Message.DispatchValue<T>>,
+        var receivedValue: Boolean = false
+    )
 }
