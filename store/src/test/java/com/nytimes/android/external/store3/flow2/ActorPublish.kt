@@ -38,7 +38,7 @@ class ActorPublish<T>(
             //  we could consider changing this into a randeveuz channel to avoid that and
             //  launch while dispatching? thats probably more memory expensive then keeping a
             //  list here
-            val channel = Channel<Message.DispatchValue<T>>(Channel.UNLIMITED)
+            val channel = Channel<Message.FlowActivity<T>>(Channel.UNLIMITED)
             var subscribed: ChannelManager<T>? = null
             try {
                 while (subscribed == null) {
@@ -60,8 +60,14 @@ class ActorPublish<T>(
 
                 channel.consumeEach {
                     log("sending $it down")
-                    emit(it.value)
-                    it.delivered.complete(Unit)
+                    try {
+                        when(it) {
+                            is Message.DispatchValue -> emit(it.value)
+                            is Message.DispatchError -> throw it.error
+                        }
+                    } finally {
+                        it.delivered.complete(Unit)
+                    }
                 }
                 log("DONE")
             } finally {

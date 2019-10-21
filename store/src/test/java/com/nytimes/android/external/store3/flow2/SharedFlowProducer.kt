@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -22,7 +23,14 @@ class SharedFlowProducer<T>(
         scope.launch {
             channelManager.active.await()
             collectionJob = scope.launch {
-                src.collect {
+                src.catch {
+                    val ack = CompletableDeferred<Unit>()
+                    channelManager.send(Message.DispatchError(it, ack))
+                    // TODO
+                    //  do we need to suspend for this ack?
+                    // suspend until at least 1 receives the new value
+                    ack.await()
+                }.collect {
                     val ack = CompletableDeferred<Unit>()
                     channelManager.send(Message.DispatchValue(it, ack))
                     // suspend until at least 1 receives the new value

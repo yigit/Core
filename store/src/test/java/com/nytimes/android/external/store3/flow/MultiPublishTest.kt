@@ -2,9 +2,11 @@ package com.nytimes.android.external.store3.flow
 
 import com.nytimes.android.external.store3.flow2.ActorPublish
 import com.nytimes.android.external.store3.flow2.log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
@@ -146,5 +148,33 @@ class MultiPublishTest {
         assertThat(lists[0]).isEqualTo(listOf("a_0", "b_0"))
         assertThat(lists[1]).isEqualTo(listOf("b_0"))
         assertThat(lists[2]).isEqualTo(listOf("a_1", "b_1"))
+    }
+
+    // TODO test this w/ late arrivals. getting an error is as good as getting a value
+    @Test
+    fun upstreamError() = testScope.runBlockingTest {
+        val exception = RuntimeException("hello")
+        val activeFlow = createFlow {
+            flow {
+                emit("a")
+                throw exception
+            }
+        }
+        val receivedValue = CompletableDeferred<String>()
+        val receivedError = CompletableDeferred<Throwable>()
+        activeFlow.create()
+            .onEach {
+                check(receivedValue.isActive) {
+                    "already received value"
+                }
+                receivedValue.complete(it)
+            }.catch {
+                check(receivedError.isActive) {
+                    "already received error"
+                }
+                receivedError.complete(it)
+            }.toList()
+        assertThat(receivedValue.await()).isEqualTo("a")
+        assertThat(receivedError.await()).isEqualTo(exception)
     }
 }

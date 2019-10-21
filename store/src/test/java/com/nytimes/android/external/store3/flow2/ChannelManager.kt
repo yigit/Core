@@ -6,11 +6,48 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 
 sealed class Message<T> {
-    class AddChannel<T>(val channel: Channel<DispatchValue<T>>) : Message<T>()
-    class RemoveChannel<T>(val channel: Channel<DispatchValue<T>>) : Message<T>()
+    /**
+     * Add a new channel, that means a new downstream subscriber
+     */
+    class AddChannel<T>(val channel: Channel<FlowActivity<T>>) : Message<T>()
+
+    /**
+     * Remove a downstream subscriber, that means it completed
+     */
+    class RemoveChannel<T>(val channel: Channel<FlowActivity<T>>) : Message<T>()
+
+    /**
+     * Cleanup all channels, the producer is done
+     */
     class Cleanup<T> : Message<T>()
-    data class DispatchValue<T>(val value: T, val delivered: CompletableDeferred<Unit>) :
-        Message<T>()
+
+    /**
+     * Base class for all flow activities. It is either an error or a value
+     */
+    open class FlowActivity<T>(val delivered: CompletableDeferred<Unit>) : Message<T>()
+
+    /**
+     * Upstream dispatched a new value, send it to all downstream items
+     */
+    class DispatchValue<T>(
+        /**
+         * The value dispatched by the upstream
+         */
+        val value: T,
+        /**
+         * Ack that is completed by all receiver. Upstream producer will await this before asking
+         * for a new value from upstream
+         */
+        delivered: CompletableDeferred<Unit>
+    ) : FlowActivity<T>(delivered)
+
+    /**
+     * Upstream dispatched an error. We should send it to all downstream items.
+     */
+    class DispatchError<T>(
+        val error: Throwable,
+        delivered: CompletableDeferred<Unit>
+    ) : FlowActivity<T>(delivered)
 }
 
 // TODO
@@ -22,14 +59,14 @@ sealed class Message<T> {
  * completed so that the sender can continue for the next item.
  */
 class ChannelManager<T>(
-    private val scope: CoroutineScope,
+    private scope: CoroutineScope,
     private val onActive: (ChannelManager<T>) -> Unit,
-    private val onClosed : suspend (/*has leftovers*/ChannelManager<T>, Boolean) -> Unit
+    private val onClosed: suspend (/*has leftovers*/ChannelManager<T>, Boolean) -> Unit
 ) : StoreActor<Message<T>>(scope) {
     private var next = CompletableDeferred<ChannelManager<T>>()
     private val _hasChannelAck = CompletableDeferred<Unit>()
     private val _lostAllChannelsAck = CompletableDeferred<Unit>()
-    private lateinit var leftovers : MutableList<Channel<Message.DispatchValue<T>>>
+    private lateinit var leftovers: MutableList<Channel<Message.FlowActivity<T>>>
     // set when we first dispatch a value to be able to track leftovers
     private var dispatchedValue = false
     val finished
@@ -45,14 +82,14 @@ class ChannelManager<T>(
         when (msg) {
             is Message.AddChannel -> doAdd(msg.channel)
             is Message.RemoveChannel -> doRemove(msg.channel)
-            is Message.DispatchValue -> doDispatch(msg)
+            is Message.FlowActivity -> doDispatch(msg)
             is Message.Cleanup -> doCleanup()
         }
     }
 
     private suspend fun doCleanup() {
         // TODO should send reason if src flow failed
-        val leftovers = mutableListOf<Channel<Message.DispatchValue<T>>>()
+        val leftovers = mutableListOf<Channel<Message.FlowActivity<T>>>()
         channels.forEach {
             if (it.receivedValue) {
                 it.channel.close()
@@ -71,7 +108,7 @@ class ChannelManager<T>(
         onClosed(this, leftovers.isNotEmpty())
     }
 
-    private suspend fun doDispatch(msg: Message.DispatchValue<T>) {
+    private suspend fun doDispatch(msg: Message.FlowActivity<T>) {
         dispatchedValue = true
         channels.forEach {
             it.receivedValue = true
@@ -79,7 +116,7 @@ class ChannelManager<T>(
         }
     }
 
-    private fun doRemove(channel: Channel<Message.DispatchValue<T>>) {
+    private fun doRemove(channel: Channel<Message.FlowActivity<T>>) {
         val index = channels.indexOfFirst {
             it.channel === channel
         }
@@ -91,7 +128,7 @@ class ChannelManager<T>(
         }
     }
 
-    private fun doAdd(channel: Channel<Message.DispatchValue<T>>) {
+    private fun doAdd(channel: Channel<Message.FlowActivity<T>>) {
         val new = channels.none {
             it.channel === channel
         }
@@ -113,6 +150,8 @@ class ChannelManager<T>(
         // we don't check for closed here because it shouldn't be closed by now
         leftovers.forEach {
             // TODO leftover needs to know about this to unsub from the right one!
+
+            // TODO we should batch these to avoid starting early
             val offered = channelManager.offer(Message.AddChannel(it))
             check(offered) {
                 "couldn't carry over subscriber to the next"
@@ -122,7 +161,7 @@ class ChannelManager<T>(
     }
 
     private class ChannelEntry<T>(
-        val channel: Channel<Message.DispatchValue<T>>,
+        val channel: Channel<Message.FlowActivity<T>>,
         var receivedValue: Boolean = false
     )
 }

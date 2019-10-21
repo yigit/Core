@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
-import org.assertj.core.api.Assertions
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,10 +23,11 @@ class ChannelManagerTest {
     @Test
     fun simple() = scope.runBlockingTest {
         val collection = async {
-            val channel = Channel<Message.DispatchValue<String>>(Channel.UNLIMITED)
+            val channel = Channel<Message.FlowActivity<String>>(Channel.UNLIMITED)
             try {
                 manager.send(Message.AddChannel(channel))
-                channel.consumeAsFlow().take(2).toList().map { it.value }
+                channel.consumeAsFlow().take(2).toList()
+                    .filterIsInstance(Message.DispatchValue::class.java).map { it.value }
             } finally {
                 manager.send(Message.RemoveChannel(channel))
             }
