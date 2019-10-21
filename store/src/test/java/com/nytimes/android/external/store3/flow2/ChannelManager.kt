@@ -12,6 +12,12 @@ sealed class Message<T> {
     class AddChannel<T>(val channel: Channel<FlowActivity<T>>) : Message<T>()
 
     /**
+     * Add multiple channels. Happens when we are carrying over leftovers from a previous
+     * manager
+     */
+    class AddLeftovers<T>(val leftovers: List<Channel<FlowActivity<T>>>) : Message<T>()
+
+    /**
      * Remove a downstream subscriber, that means it completed
      */
     class RemoveChannel<T>(val channel: Channel<FlowActivity<T>>) : Message<T>()
@@ -59,7 +65,7 @@ sealed class Message<T> {
  * completed so that the sender can continue for the next item.
  */
 class ChannelManager<T>(
-    private scope: CoroutineScope,
+    scope: CoroutineScope,
     private val onActive: (ChannelManager<T>) -> Unit,
     private val onClosed: suspend (/*has leftovers*/ChannelManager<T>, Boolean) -> Unit
 ) : StoreActor<Message<T>>(scope) {
@@ -80,6 +86,7 @@ class ChannelManager<T>(
     override suspend fun handle(msg: Message<T>) {
         log("received message $msg")
         when (msg) {
+            is Message.AddLeftovers -> doAddLefovers(msg.leftovers)
             is Message.AddChannel -> doAdd(msg.channel)
             is Message.RemoveChannel -> doRemove(msg.channel)
             is Message.FlowActivity -> doDispatch(msg)
@@ -128,6 +135,26 @@ class ChannelManager<T>(
         }
     }
 
+    private fun doAddLefovers(leftovers: List<Channel<Message.FlowActivity<T>>>) {
+        val allNew = leftovers.all { channel ->
+            channels.none {
+                it.channel === channel
+            }
+        }
+
+        check(allNew) {
+            "some channels are already in the list (complete list): $leftovers."
+        }
+        leftovers.forEach { channel ->
+            channels.add(ChannelEntry(channel))
+        }
+
+        if (_hasChannelAck.isActive && channels.size > 0) {
+            _hasChannelAck.complete(Unit)
+            onActive(this)
+        }
+    }
+
     private fun doAdd(channel: Channel<Message.FlowActivity<T>>) {
         val new = channels.none {
             it.channel === channel
@@ -148,13 +175,10 @@ class ChannelManager<T>(
         }
         next.complete(channelManager)
         // we don't check for closed here because it shouldn't be closed by now
-        leftovers.forEach {
-            // TODO leftover needs to know about this to unsub from the right one!
-
-            // TODO we should batch these to avoid starting early
-            val offered = channelManager.offer(Message.AddChannel(it))
-            check(offered) {
-                "couldn't carry over subscriber to the next"
+        if (leftovers.isNotEmpty()) {
+            val accepted = channelManager.offer(Message.AddLeftovers(leftovers))
+            check(accepted) {
+                "couldn't carry over leftovers"
             }
         }
         leftovers.clear()
