@@ -3,6 +3,7 @@ package com.nytimes.android.external.store3.flow
 import com.nytimes.android.external.store3.flow2.ActorPublish
 import com.nytimes.android.external.store3.flow2.log
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -11,29 +12,32 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
+import kotlinx.coroutines.yield
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
+@ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
 class MultiPublishTest {
     private val testScope = TestCoroutineScope()
 
-    fun <T> createFlow(f : () -> Flow<T>) : Publish<T> {
-        //return EndlessPublishFlow2(testScope, f)
+    fun <T> createFlow(f: () -> Flow<T>): Publish<T> {
         return ActorPublish(testScope, f)
     }
 
     @Test
-    fun serialial_notShared() = testScope.runBlockingTest{
+    fun serialial_notShared() = testScope.runBlockingTest {
         var createCnt = 0
         val activeFlow = createFlow {
-            createCnt ++
-            when(createCnt) {
+            createCnt++
+            when (createCnt) {
                 1 -> flowOf("a", "b", "c")
                 2 -> flowOf("d", "e", "f")
                 else -> throw AssertionError("should not create more")
@@ -46,7 +50,7 @@ class MultiPublishTest {
     }
 
     @Test
-    fun slowFastCollector() = testScope.runBlockingTest{
+    fun slowFastCollector() = testScope.runBlockingTest {
         val activeFlow = createFlow {
             flowOf("a", "b", "c").onStart {
                 // make sure both registers on time so that no one drops a value
@@ -150,10 +154,9 @@ class MultiPublishTest {
         assertThat(lists[2]).isEqualTo(listOf("a_1", "b_1"))
     }
 
-    // TODO test this w/ late arrivals. getting an error is as good as getting a value
     @Test
     fun upstreamError() = testScope.runBlockingTest {
-        val exception = RuntimeException("hello")
+        val exception = MyCustomException("hey")
         val activeFlow = createFlow {
             flow {
                 emit("a")
@@ -175,6 +178,88 @@ class MultiPublishTest {
                 receivedError.complete(it)
             }.toList()
         assertThat(receivedValue.await()).isEqualTo("a")
-        assertThat(receivedError.await()).isEqualTo(exception)
+        val error = receivedError.await()
+        assertThat(error).isEqualTo(exception)
+    }
+
+    @Test
+    fun upstreamError_secondJustGetsError() = testScope.runBlockingTest {
+        val exception = MyCustomException("hey")
+        val dispatchedFirstValue = CompletableDeferred<Unit>()
+        val registeredSecondCollector = CompletableDeferred<Unit>()
+        val activeFlow = createFlow {
+            flow {
+                emit("a")
+                dispatchedFirstValue.complete(Unit)
+                log("dispatched value")
+                registeredSecondCollector.await()
+                yield() //yield to allow second collector to register
+                log("dispatching error")
+                throw exception
+            }
+        }
+        launch {
+            activeFlow.create().catch {
+
+            }.toList()
+        }
+        // wait until the above collector registers and receives first value
+        dispatchedFirstValue.await()
+        val receivedValue = CompletableDeferred<String>()
+        val receivedError = CompletableDeferred<Throwable>()
+        activeFlow.create()
+            .onStart {
+                log("registered")
+                registeredSecondCollector.complete(Unit)
+            }
+            .onEach {
+                receivedValue.complete(it)
+            }.catch {
+                check(receivedError.isActive) {
+                    "already received error"
+                }
+                receivedError.complete(it)
+            }.toList()
+        val error = receivedError.await()
+        assertThat(error).isEqualTo(exception)
+        // test sanity, second collector never receives a value
+        assertThat(receivedValue.isActive).isTrue()
+    }
+
+    @Test
+    fun lateArrival_unregistersFromTheCorrectManager() = testScope.runBlockingTest {
+        var createdCount = 0
+        var didntFinish = false
+        val activeFlow = createFlow {
+            flow {
+                check(createdCount < 2) {
+                    "created 1 too many"
+                }
+                val index = ++createdCount
+                emit("a_$index")
+                emit("b_$index")
+                delay(100)
+                if (index == 2) {
+                    didntFinish = true
+                }
+            }
+        }
+        val firstCollector = async {
+            activeFlow.create().onEach { delay(5) }.take(2).toList()
+        }
+        delay(10) // miss first two values
+        val secondCollector = async {
+            // this will come in a new channel
+            activeFlow.create().take(2).toList()
+        }
+        assertThat(firstCollector.await()).isEqualTo(listOf("a_1", "b_1"))
+        assertThat(secondCollector.await()).isEqualTo(listOf("a_2", "b_2"))
+        assertThat(createdCount).isEqualTo(2)
+        delay(200)
+        assertThat(didntFinish).isEqualTo(false)
+    }
+
+    class MyCustomException(val x: String) : RuntimeException("hello") {
+        override fun toString() = "custom$x"
     }
 }

@@ -9,28 +9,27 @@ sealed class Message<T> {
     /**
      * Add a new channel, that means a new downstream subscriber
      */
-    class AddChannel<T>(val channel: Channel<FlowActivity<T>>) : Message<T>()
+    class AddChannel<T>(
+        val channel: Channel<DispatchValue<T>>,
+        val onSubscribed: (ChannelManager<T>) -> Unit
+    ) : Message<T>()
 
     /**
      * Add multiple channels. Happens when we are carrying over leftovers from a previous
      * manager
      */
-    class AddLeftovers<T>(val leftovers: List<Channel<FlowActivity<T>>>) : Message<T>()
+    internal class AddLeftovers<T>(val leftovers: List<ChannelManager.ChannelEntry<T>>) :
+        Message<T>()
 
     /**
      * Remove a downstream subscriber, that means it completed
      */
-    class RemoveChannel<T>(val channel: Channel<FlowActivity<T>>) : Message<T>()
+    class RemoveChannel<T>(val channel: Channel<DispatchValue<T>>) : Message<T>()
 
     /**
      * Cleanup all channels, the producer is done
      */
     class Cleanup<T> : Message<T>()
-
-    /**
-     * Base class for all flow activities. It is either an error or a value
-     */
-    open class FlowActivity<T>(val delivered: CompletableDeferred<Unit>) : Message<T>()
 
     /**
      * Upstream dispatched a new value, send it to all downstream items
@@ -44,16 +43,18 @@ sealed class Message<T> {
          * Ack that is completed by all receiver. Upstream producer will await this before asking
          * for a new value from upstream
          */
-        delivered: CompletableDeferred<Unit>
-    ) : FlowActivity<T>(delivered)
+        val delivered: CompletableDeferred<Unit>
+    ) : Message<T>()
 
     /**
-     * Upstream dispatched an error. We should send it to all downstream items.
+     * Upstream dispatched a new value, send it to all downstream items
      */
     class DispatchError<T>(
-        val error: Throwable,
-        delivered: CompletableDeferred<Unit>
-    ) : FlowActivity<T>(delivered)
+        /**
+         * The error sent by the upstream
+         */
+        val error: Throwable
+    ) : Message<T>()
 }
 
 // TODO
@@ -72,7 +73,7 @@ class ChannelManager<T>(
     private var next = CompletableDeferred<ChannelManager<T>>()
     private val _hasChannelAck = CompletableDeferred<Unit>()
     private val _lostAllChannelsAck = CompletableDeferred<Unit>()
-    private lateinit var leftovers: MutableList<Channel<Message.FlowActivity<T>>>
+    private lateinit var leftovers: MutableList<ChannelEntry<T>>
     // set when we first dispatch a value to be able to track leftovers
     private var dispatchedValue = false
     val finished
@@ -87,22 +88,23 @@ class ChannelManager<T>(
         log("received message $msg")
         when (msg) {
             is Message.AddLeftovers -> doAddLefovers(msg.leftovers)
-            is Message.AddChannel -> doAdd(msg.channel)
+            is Message.AddChannel -> doAdd(msg)
             is Message.RemoveChannel -> doRemove(msg.channel)
-            is Message.FlowActivity -> doDispatch(msg)
+            is Message.DispatchValue -> doDispatchValue(msg)
+            is Message.DispatchError -> doDispatchError(msg)
             is Message.Cleanup -> doCleanup()
         }
     }
 
     private suspend fun doCleanup() {
         // TODO should send reason if src flow failed
-        val leftovers = mutableListOf<Channel<Message.FlowActivity<T>>>()
+        val leftovers = mutableListOf<ChannelEntry<T>>()
         channels.forEach {
             if (it.receivedValue) {
                 it.channel.close()
             } else if (dispatchedValue) {
                 // we dispatched a value but this channel didn't receive so put it into leftovers
-                leftovers.add(it.channel)
+                leftovers.add(it)
             } else {
                 // upstream didn't dispatch
                 it.channel.close()
@@ -115,7 +117,7 @@ class ChannelManager<T>(
         onClosed(this, leftovers.isNotEmpty())
     }
 
-    private suspend fun doDispatch(msg: Message.FlowActivity<T>) {
+    private suspend fun doDispatchValue(msg: Message.DispatchValue<T>) {
         dispatchedValue = true
         channels.forEach {
             it.receivedValue = true
@@ -123,7 +125,16 @@ class ChannelManager<T>(
         }
     }
 
-    private fun doRemove(channel: Channel<Message.FlowActivity<T>>) {
+    private suspend fun doDispatchError(msg: Message.DispatchError<T>) {
+        // dispatching error is as good as dispatching value
+        dispatchedValue = true
+        channels.forEach {
+            it.receivedValue = true
+            it.channel.close(msg.error)
+        }
+    }
+
+    private fun doRemove(channel: Channel<Message.DispatchValue<T>>) {
         val index = channels.indexOfFirst {
             it.channel === channel
         }
@@ -135,7 +146,7 @@ class ChannelManager<T>(
         }
     }
 
-    private fun doAddLefovers(leftovers: List<Channel<Message.FlowActivity<T>>>) {
+    private fun doAddLefovers(leftovers: List<ChannelEntry<T>>) {
         val allNew = leftovers.all { channel ->
             channels.none {
                 it.channel === channel
@@ -145,8 +156,12 @@ class ChannelManager<T>(
         check(allNew) {
             "some channels are already in the list (complete list): $leftovers."
         }
-        leftovers.forEach { channel ->
-            channels.add(ChannelEntry(channel))
+        leftovers.forEach { entry ->
+            channels.add(entry.copy(
+                receivedValue = false
+            ).also {
+                it.onSubscribed(this)
+            })
         }
 
         if (_hasChannelAck.isActive && channels.size > 0) {
@@ -155,14 +170,19 @@ class ChannelManager<T>(
         }
     }
 
-    private fun doAdd(channel: Channel<Message.FlowActivity<T>>) {
+    private fun doAdd(msg: Message.AddChannel<T>) {
         val new = channels.none {
-            it.channel === channel
+            it.channel === msg.channel
         }
         check(new) {
-            "$channel is already in the list."
+            "$msg is already in the list."
         }
-        channels.add(ChannelEntry(channel))
+        channels.add(ChannelEntry(
+            channel = msg.channel,
+            onSubscribed = msg.onSubscribed
+        ).also {
+            it.onSubscribed(this)
+        })
         if (_hasChannelAck.isActive && channels.size == 1) {
             _hasChannelAck.complete(Unit)
             onActive(this)
@@ -184,8 +204,10 @@ class ChannelManager<T>(
         leftovers.clear()
     }
 
-    private class ChannelEntry<T>(
-        val channel: Channel<Message.FlowActivity<T>>,
-        var receivedValue: Boolean = false
+    internal data class ChannelEntry<T>(
+        val channel: Channel<Message.DispatchValue<T>>,
+        var receivedValue: Boolean = false,
+        // called back when a downstream's Add request is handled
+        val onSubscribed: (ChannelManager<T>) -> Unit
     )
 }

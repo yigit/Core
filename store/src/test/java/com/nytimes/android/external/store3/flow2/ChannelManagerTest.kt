@@ -23,9 +23,9 @@ class ChannelManagerTest {
     @Test
     fun simple() = scope.runBlockingTest {
         val collection = async {
-            val channel = Channel<Message.FlowActivity<String>>(Channel.UNLIMITED)
+            val channel = Channel<Message.DispatchValue<String>>(Channel.UNLIMITED)
             try {
-                manager.send(Message.AddChannel(channel))
+                manager.send(Message.AddChannel(channel){})
                 channel.consumeAsFlow().take(2).toList()
                     .filterIsInstance(Message.DispatchValue::class.java).map { it.value }
             } finally {
