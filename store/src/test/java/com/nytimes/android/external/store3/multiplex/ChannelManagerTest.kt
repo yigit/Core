@@ -1,6 +1,11 @@
 package com.nytimes.android.external.store3.multiplex
 
+import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.AddChannel
+import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.DispatchValue
+import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.RemoveChannel
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.consumeAsFlow
@@ -13,34 +18,35 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
+@FlowPreview
+@ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
 class ChannelManagerTest {
     private val scope = TestCoroutineScope()
     private val manager = ChannelManager<String>(
         scope,
         0,
-        {}) { _, restart ->
+        {}) { restart ->
         check(!restart)
     }
 
     @Test
     fun simple() = scope.runBlockingTest {
         val collection = async {
-            val channel = Channel<Message.DispatchValue<String>>(Channel.UNLIMITED)
+            val channel = Channel<DispatchValue<String>>(Channel.UNLIMITED)
             try {
-                manager.send(Message.AddChannel(channel){})
+                manager.send(AddChannel(channel) {})
                 channel.consumeAsFlow().take(2).toList()
-                    .filterIsInstance(Message.DispatchValue::class.java).map { it.value }
+                    .map { it.value }
             } finally {
-                manager.send(Message.RemoveChannel(channel))
+                manager.send(RemoveChannel(channel))
             }
         }
-        manager.active.await()
         val ack1 = CompletableDeferred<Unit>()
-        manager.send(Message.DispatchValue("a", ack1))
+        manager.send(DispatchValue("a", ack1))
 
         val ack2 = CompletableDeferred<Unit>()
-        manager.send(Message.DispatchValue("b", ack2))
+        manager.send(DispatchValue("b", ack2))
         manager.finished.await()
         assertThat(collection.await()).isEqualTo(listOf("a", "b"))
     }
