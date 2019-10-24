@@ -39,7 +39,6 @@ class ActorPublish<T>(
         scope = scope,
         bufferSize = bufferSize,
         onCreateProducer = { channelManager ->
-            log("creating producer")
             SharedFlowProducer(
                 scope = scope,
                 src = source(),
@@ -77,14 +76,12 @@ class ActorPublish<T>(
                 }
 
                 channel.consumeEach {
-                    log("sending $it down")
                     try {
                         emit(it.value)
                     } finally {
                         it.delivered.complete(Unit)
                     }
                 }
-                log("DONE")
             } finally {
                 try {
                     subscribed?.send(Message.RemoveChannel(channel))

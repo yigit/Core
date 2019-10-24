@@ -7,7 +7,7 @@ import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.launch
 
 abstract class StoreActor<T>(
-    private val scope: CoroutineScope
+    scope: CoroutineScope
 ) {
     private val inboundChannel = Channel<Packet<T>>(Channel.UNLIMITED)
     init {
@@ -16,7 +16,6 @@ abstract class StoreActor<T>(
                 handle(it.data)
                 it.ack.complete(Unit)
             }
-            log("inbound channel finished")
         }
     }
 
@@ -35,7 +34,7 @@ abstract class StoreActor<T>(
         return inboundChannel.offer(packet)
     }
 
-    suspend fun close() {
+    fun close() {
         inboundChannel.close()
     }
 

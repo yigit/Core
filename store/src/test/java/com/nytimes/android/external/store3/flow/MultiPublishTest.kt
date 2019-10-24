@@ -1,7 +1,6 @@
 package com.nytimes.android.external.store3.flow
 
 import com.nytimes.android.external.store3.flow2.ActorPublish
-import com.nytimes.android.external.store3.flow2.log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -128,21 +127,16 @@ class MultiPublishTest {
         }
         val c1 = async {
             activeFlow.create().onEach {
-                log("[c1] $it")
             }.toList()
         }
         val c2 = async {
             activeFlow.create().also {
                 delay(3)
-            }.onEach {
-                log("[c2] $it")
             }.toList()
         }
         val c3 = async {
             activeFlow.create().also {
                 delay(20)
-            }.onEach {
-                log("[c3] $it")
             }.toList()
         }
         val lists = listOf(c1, c2, c3).map {
@@ -191,10 +185,8 @@ class MultiPublishTest {
             flow {
                 emit("a")
                 dispatchedFirstValue.complete(Unit)
-                log("dispatched value")
                 registeredSecondCollector.await()
                 yield() //yield to allow second collector to register
-                log("dispatching error")
                 throw exception
             }
         }
@@ -209,7 +201,6 @@ class MultiPublishTest {
         val receivedError = CompletableDeferred<Throwable>()
         activeFlow.create()
             .onStart {
-                log("registered")
                 registeredSecondCollector.complete(Unit)
             }
             .onEach {

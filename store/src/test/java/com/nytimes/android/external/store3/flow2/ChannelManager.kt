@@ -89,7 +89,6 @@ class ChannelManager<T>(
 
     private val channels = mutableListOf<ChannelEntry<T>>()
     override suspend fun handle(msg: Message<T>) {
-        log("received message $msg")
         when (msg) {
             is Message.AddLeftovers -> doAddLefovers(msg.leftovers)
             is Message.AddChannel -> doAdd(msg)
