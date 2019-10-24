@@ -4,6 +4,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
+import java.util.ArrayDeque
+import java.util.Collections
 
 sealed class Message<T> {
     /**
@@ -67,9 +69,11 @@ sealed class Message<T> {
  */
 class ChannelManager<T>(
     scope: CoroutineScope,
+    bufferSize: Int,
     private val onActive: (ChannelManager<T>) -> Unit,
     private val onClosed: suspend (/*has leftovers*/ChannelManager<T>, Boolean) -> Unit
 ) : StoreActor<Message<T>>(scope) {
+    private val buffer = Buffer<T>(bufferSize)
     private var next = CompletableDeferred<ChannelManager<T>>()
     private val _hasChannelAck = CompletableDeferred<Unit>()
     private val _lostAllChannelsAck = CompletableDeferred<Unit>()
@@ -101,13 +105,13 @@ class ChannelManager<T>(
         val leftovers = mutableListOf<ChannelEntry<T>>()
         channels.forEach {
             if (it.receivedValue) {
-                it.channel.close()
+                it.close()
             } else if (dispatchedValue) {
                 // we dispatched a value but this channel didn't receive so put it into leftovers
                 leftovers.add(it)
             } else {
                 // upstream didn't dispatch
-                it.channel.close()
+                it.close()
             }
         }
         this.leftovers = leftovers // keep leftovers, they'll be cleaned in setNext of the next one
@@ -118,25 +122,24 @@ class ChannelManager<T>(
     }
 
     private suspend fun doDispatchValue(msg: Message.DispatchValue<T>) {
+        buffer.add(msg)
         dispatchedValue = true
         channels.forEach {
-            it.receivedValue = true
-            it.channel.send(msg)
+            it.dispatchValue(msg)
         }
     }
 
-    private suspend fun doDispatchError(msg: Message.DispatchError<T>) {
+    private fun doDispatchError(msg: Message.DispatchError<T>) {
         // dispatching error is as good as dispatching value
         dispatchedValue = true
         channels.forEach {
-            it.receivedValue = true
-            it.channel.close(msg.error)
+            it.dispatchError(msg.error)
         }
     }
 
     private fun doRemove(channel: Channel<Message.DispatchValue<T>>) {
         val index = channels.indexOfFirst {
-            it.channel === channel
+            it.hasChannel(channel)
         }
         if (index >= 0) {
             channels.removeAt(index)
@@ -146,50 +149,51 @@ class ChannelManager<T>(
         }
     }
 
-    private fun doAddLefovers(leftovers: List<ChannelEntry<T>>) {
-        val allNew = leftovers.all { channel ->
-            channels.none {
-                it.channel === channel
-            }
-        }
-
-        check(allNew) {
-            "some channels are already in the list (complete list): $leftovers."
-        }
-        leftovers.forEach { entry ->
-            channels.add(entry.copy(
-                receivedValue = false
-            ).also {
-                it.onSubscribed(this)
-            })
-        }
-
-        if (_hasChannelAck.isActive && channels.size > 0) {
-            _hasChannelAck.complete(Unit)
-            onActive(this)
+    private suspend fun doAddLefovers(leftovers: List<ChannelEntry<T>>) {
+        leftovers.forEachIndexed { index, channelEntry ->
+            addEntry(
+                entry = channelEntry.copy(_receivedValue = false),
+                notifySize = index == leftovers.size - 1
+            )
         }
     }
 
-    private fun doAdd(msg: Message.AddChannel<T>) {
+    private suspend fun doAdd(msg: Message.AddChannel<T>) {
+        addEntry(
+            entry = ChannelEntry(
+                channel = msg.channel,
+                onSubscribed = msg.onSubscribed
+            ),
+            notifySize = true
+        )
+    }
+
+    private suspend fun addEntry(entry: ChannelEntry<T>, notifySize: Boolean) {
         val new = channels.none {
-            it.channel === msg.channel
+            it.hasChannel(entry)
         }
         check(new) {
-            "$msg is already in the list."
+            "$entry is already in the list."
         }
-        channels.add(ChannelEntry(
-            channel = msg.channel,
-            onSubscribed = msg.onSubscribed
-        ).also {
-            it.onSubscribed(this)
-        })
-        if (_hasChannelAck.isActive && channels.size == 1) {
-            _hasChannelAck.complete(Unit)
-            onActive(this)
+        check(!entry.receivedValue) {
+            "$entry already received a value"
+        }
+        channels.add(entry)
+
+        entry.onSubscribed(this)
+        // if there is anything in the buffer, send it
+        buffer.items.forEach {
+            entry.dispatchValue(it)
+        }
+        if (notifySize) {
+            if (_hasChannelAck.isActive && channels.size == 1) {
+                _hasChannelAck.complete(Unit)
+                onActive(this)
+            }
         }
     }
 
-    fun setNext(channelManager: ChannelManager<T>): Unit {
+    fun setNext(channelManager: ChannelManager<T>) {
         check(!next.isCompleted) {
             "next is already set!!!"
         }
@@ -205,9 +209,60 @@ class ChannelManager<T>(
     }
 
     internal data class ChannelEntry<T>(
-        val channel: Channel<Message.DispatchValue<T>>,
-        var receivedValue: Boolean = false,
+        private val channel: Channel<Message.DispatchValue<T>>,
+        private var _receivedValue: Boolean = false,
         // called back when a downstream's Add request is handled
         val onSubscribed: (ChannelManager<T>) -> Unit
-    )
+    ) {
+        val receivedValue
+            get() = _receivedValue
+
+        suspend fun dispatchValue(value: Message.DispatchValue<T>) {
+            _receivedValue = true
+            channel.send(value)
+        }
+
+        fun dispatchError(error: Throwable) {
+            _receivedValue = true
+            channel.close(error)
+        }
+
+        fun close() {
+            channel.close()
+        }
+
+        fun hasChannel(channel: Channel<Message.DispatchValue<T>>) = this.channel === channel
+        fun hasChannel(entry: ChannelEntry<T>) = this.channel === entry.channel
+    }
+}
+
+private interface Buffer<T> {
+    fun add(item: Message.DispatchValue<T>)
+    val items: Collection<Message.DispatchValue<T>>
+}
+
+private class NoBuffer<T> : Buffer<T> {
+    override val items: Collection<Message.DispatchValue<T>>
+        get() = Collections.emptyList()
+
+
+    override fun add(item: Message.DispatchValue<T>) {
+        // ignore
+    }
+}
+
+private fun <T> Buffer(limit: Int): Buffer<T> = if (limit > 0) {
+    BufferImpl(limit)
+} else {
+    NoBuffer<T>()
+}
+
+private class BufferImpl<T>(private val limit: Int) : Buffer<T> {
+    override val items = ArrayDeque<Message.DispatchValue<T>>(limit.coerceAtMost(10))
+    override fun add(item: Message.DispatchValue<T>) {
+        while (items.size >= limit) {
+            items.pollFirst()
+        }
+        items.offerLast(item)
+    }
 }

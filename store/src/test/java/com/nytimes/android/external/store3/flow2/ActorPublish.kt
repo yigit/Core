@@ -2,6 +2,7 @@ package com.nytimes.android.external.store3.flow2
 
 import com.nytimes.android.external.store3.flow.Publish
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.channels.consumeEach
@@ -10,12 +11,33 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * A publish implementation very specific to the Store use case.
+ *
+ * It shares an upstream between multiple downstream subscribers.
+ *
+ * If a downstream subscriber arrives late such that it does not receive any values, even though
+ * there were values published before, a new upstream is created to ensure that no downstream is
+ * left without a value for arriving late.
+ *
+ * We prefer this model instead of caching last value to ensure that any new subscriber gets values
+ * that were emitted after it subscribed.
+ *
+ * For certain use cases, buffering might be preferred (like a database). For those, [bufferSize]
+ * can be set to a value greater than 0. Note that this buffer is used only if upstream is still
+ * open, if upstream closed, there is no buffering. (e.g. we don't want to go into caching business
+ * here)
+ */
+
+@ExperimentalCoroutinesApi
 class ActorPublish<T>(
     private val scope: CoroutineScope,
+    bufferSize: Int = 0,
     private val source: () -> Flow<T>
 ) : Publish<T> {
     private val activeChannelManager = ActiveChannelTracker<T>(
         scope = scope,
+        bufferSize = bufferSize,
         onCreateProducer = { channelManager ->
             log("creating producer")
             SharedFlowProducer(
@@ -25,6 +47,12 @@ class ActorPublish<T>(
             ).start()
         }
     )
+
+    init {
+        check(bufferSize >= 0) {
+            "buffer should be 0 or positive"
+        }
+    }
 
     override fun create(): Flow<T> {
         return flow {
@@ -66,29 +94,34 @@ class ActorPublish<T>(
             }
         }
     }
-
 }
 
+/**
+ * This helper ensures there is always 1 and only 1 ChannelManager that is currently active.
+ * It might be down to zero if active channel manager finishes w/o any leftovers.
+ */
 internal class ActiveChannelTracker<T>(
     private val scope: CoroutineScope,
+    private val bufferSize: Int,
     private val onCreateProducer: (ChannelManager<T>) -> Unit
 ) {
-    // TODO
-    //  this should be better at ensuring there is only 1 channel manager, blocking if necessary
-    //  and then always ensure there is a latest one that can be passed down to the individual
-    //  collectors. Since it is lazy, should be possible to do in suspend blocks
-    private val LOCK = Mutex()
+    private val lock = Mutex()
     private var latestManager: ChannelManager<T>? = null
     suspend fun getLatest(): ChannelManager<T> {
-        return LOCK.withLock {
+        return lock.withLock {
             if (latestManager == null || latestManager!!.finished.isCompleted) {
                 ChannelManager(
                     scope = scope,
                     onActive = onCreateProducer,
+                    bufferSize = bufferSize,
                     onClosed = { _, needsRestart ->
                         if (needsRestart) {
                             // TODO re-entry?
                             getLatest()
+                        } else {
+                            lock.withLock {
+                                latestManager = null
+                            }
                         }
                     }
                 ).also {

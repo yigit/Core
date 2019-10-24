@@ -29,7 +29,7 @@ class MultiPublishTest {
     private val testScope = TestCoroutineScope()
 
     fun <T> createFlow(f: () -> Flow<T>): Publish<T> {
-        return ActorPublish(testScope, f)
+        return ActorPublish(testScope, 0, f)
     }
 
     @Test
@@ -257,6 +257,49 @@ class MultiPublishTest {
         assertThat(createdCount).isEqualTo(2)
         delay(200)
         assertThat(didntFinish).isEqualTo(false)
+    }
+
+    @Test
+    fun lateArrival_buffered() = testScope.runBlockingTest {
+        var createdCount = 0
+        val activeFlow = ActorPublish(
+            scope = testScope,
+            bufferSize = 2,
+            source = {
+                createdCount ++
+                flow {
+                    emit("a")
+                    delay(5)
+                    emit("b")
+                    emit("c")
+                    emit("d")
+                    delay(100)
+                    emit("e")
+                    // dont finish to see the buffer behavior
+                    delay(2000)
+                }
+            }
+        )
+        val c1 = async {
+            activeFlow.create().toList()
+        }
+        delay(4)// c2 misses first value
+        val c2 = async {
+            activeFlow.create().toList()
+        }
+        delay(50) // c3 misses first 4 values
+        val c3 = async {
+            activeFlow.create().toList()
+        }
+        delay(100) // c4 misses all values
+        val c4 = async {
+            activeFlow.create().toList()
+        }
+        assertThat(c1.await()).isEqualTo(listOf("a", "b", "c", "d", "e"))
+        assertThat(c2.await()).isEqualTo(listOf("a", "b", "c", "d", "e"))
+        assertThat(c3.await()).isEqualTo(listOf("c", "d", "e"))
+        assertThat(c4.await()).isEqualTo(listOf("d", "e"))
+        assertThat(createdCount).isEqualTo(1)
     }
 
     class MyCustomException(val x: String) : RuntimeException("hello") {
