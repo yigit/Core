@@ -1,4 +1,4 @@
-package com.nytimes.android.external.store3.flow2
+package com.nytimes.android.external.store3.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -100,7 +100,6 @@ class ChannelManager<T>(
     }
 
     private suspend fun doCleanup() {
-        // TODO should send reason if src flow failed
         val leftovers = mutableListOf<ChannelEntry<T>>()
         channels.forEach {
             if (it.receivedValue) {
@@ -199,7 +198,11 @@ class ChannelManager<T>(
         next.complete(channelManager)
         // we don't check for closed here because it shouldn't be closed by now
         if (leftovers.isNotEmpty()) {
-            val accepted = channelManager.offer(Message.AddLeftovers(leftovers))
+            val accepted = channelManager.offer(
+                Message.AddLeftovers(
+                    leftovers
+                )
+            )
             check(accepted) {
                 "couldn't carry over leftovers"
             }
@@ -256,7 +259,8 @@ private fun <T> Buffer(limit: Int): Buffer<T> = if (limit > 0) {
     NoBuffer<T>()
 }
 
-private class BufferImpl<T>(private val limit: Int) : Buffer<T> {
+private class BufferImpl<T>(private val limit: Int) :
+    Buffer<T> {
     override val items = ArrayDeque<Message.DispatchValue<T>>(limit.coerceAtMost(10))
     override fun add(item: Message.DispatchValue<T>) {
         while (items.size >= limit) {

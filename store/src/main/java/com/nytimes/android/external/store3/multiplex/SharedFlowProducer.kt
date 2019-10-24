@@ -1,4 +1,4 @@
-package com.nytimes.android.external.store3.flow2
+package com.nytimes.android.external.store3.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -23,10 +23,19 @@ class SharedFlowProducer<T>(
             channelManager.active.await()
             collectionJob = scope.launch {
                 src.catch {
-                    channelManager.send(Message.DispatchError(it))
+                    channelManager.send(
+                        Message.DispatchError(
+                            it
+                        )
+                    )
                 }.collect {
                     val ack = CompletableDeferred<Unit>()
-                    channelManager.send(Message.DispatchValue(it, ack))
+                    channelManager.send(
+                        Message.DispatchValue(
+                            it,
+                            ack
+                        )
+                    )
                     // suspend until at least 1 receives the new value
                     ack.await()
                 }

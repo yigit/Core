@@ -1,4 +1,4 @@
-package com.nytimes.android.external.store3.flow2
+package com.nytimes.android.external.store3.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -16,7 +16,10 @@ import org.junit.runners.JUnit4
 @RunWith(JUnit4::class)
 class ChannelManagerTest {
     private val scope = TestCoroutineScope()
-    private val manager = ChannelManager<String>(scope, 0, {}) { _, restart ->
+    private val manager = ChannelManager<String>(
+        scope,
+        0,
+        {}) { _, restart ->
         check(!restart)
     }
 

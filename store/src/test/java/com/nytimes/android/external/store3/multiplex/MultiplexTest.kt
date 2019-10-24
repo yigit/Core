@@ -1,6 +1,5 @@
-package com.nytimes.android.external.store3.flow
+package com.nytimes.android.external.store3.multiplex
 
-import com.nytimes.android.external.store3.flow2.ActorPublish
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -24,10 +23,10 @@ import org.junit.runners.JUnit4
 
 @ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
-class MultiPublishTest {
+class MultiplexTest {
     private val testScope = TestCoroutineScope()
 
-    fun <T> createFlow(f: () -> Flow<T>): Publish<T> {
+    fun <T> createFlow(f: () -> Flow<T>): ActorPublish<T> {
         return ActorPublish(testScope, 0, f)
     }
 
@@ -150,7 +149,8 @@ class MultiPublishTest {
 
     @Test
     fun upstreamError() = testScope.runBlockingTest {
-        val exception = MyCustomException("hey")
+        val exception =
+            MyCustomException("hey")
         val activeFlow = createFlow {
             flow {
                 emit("a")
@@ -178,7 +178,8 @@ class MultiPublishTest {
 
     @Test
     fun upstreamError_secondJustGetsError() = testScope.runBlockingTest {
-        val exception = MyCustomException("hey")
+        val exception =
+            MyCustomException("hey")
         val dispatchedFirstValue = CompletableDeferred<Unit>()
         val registeredSecondCollector = CompletableDeferred<Unit>()
         val activeFlow = createFlow {
@@ -257,7 +258,7 @@ class MultiPublishTest {
             scope = testScope,
             bufferSize = 2,
             source = {
-                createdCount ++
+                createdCount++
                 flow {
                     emit("a")
                     delay(5)

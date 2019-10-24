@@ -1,11 +1,16 @@
-package com.nytimes.android.external.store3.flow2
+package com.nytimes.android.external.store3.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.launch
 
+/**
+ * Simple actor implementation because coroutines actor is being deprecated ¯\_(ツ)_/¯
+ */
+@ExperimentalCoroutinesApi
 abstract class StoreActor<T>(
     scope: CoroutineScope
 ) {

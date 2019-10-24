@@ -1,6 +1,5 @@
-package com.nytimes.android.external.store3.flow2
+package com.nytimes.android.external.store3.multiplex
 
-import com.nytimes.android.external.store3.flow.Publish
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -34,18 +33,19 @@ class ActorPublish<T>(
     private val scope: CoroutineScope,
     bufferSize: Int = 0,
     private val source: () -> Flow<T>
-) : Publish<T> {
-    private val activeChannelManager = ActiveChannelTracker<T>(
-        scope = scope,
-        bufferSize = bufferSize,
-        onCreateProducer = { channelManager ->
-            SharedFlowProducer(
-                scope = scope,
-                src = source(),
-                channelManager = channelManager
-            ).start()
-        }
-    )
+)  {
+    private val activeChannelManager =
+        ActiveChannelTracker<T>(
+            scope = scope,
+            bufferSize = bufferSize,
+            onCreateProducer = { channelManager ->
+                SharedFlowProducer(
+                    scope = scope,
+                    src = source(),
+                    channelManager = channelManager
+                ).start()
+            }
+        )
 
     init {
         check(bufferSize >= 0) {
@@ -53,7 +53,7 @@ class ActorPublish<T>(
         }
     }
 
-    override fun create(): Flow<T> {
+    fun create(): Flow<T> {
         return flow {
             // using an unlimited channel because we'll only receive values if another collector
             // is fast at collection. In that case, we just want to buffer. Downstream can decide
@@ -66,9 +66,12 @@ class ActorPublish<T>(
                     // so if thats the case, wait for the followup manager, there will be one!
                     try {
                         val manager = activeChannelManager.getLatest()
-                        manager.send(Message.AddChannel(channel) {
-                            subscribed = it
-                        })
+                        manager.send(
+                            Message.AddChannel(
+                                channel
+                            ) {
+                                subscribed = it
+                            })
                         subscribed = manager
                     } catch (closed: ClosedSendChannelException) {
                         // current is closed, get the following
@@ -84,7 +87,11 @@ class ActorPublish<T>(
                 }
             } finally {
                 try {
-                    subscribed?.send(Message.RemoveChannel(channel))
+                    subscribed?.send(
+                        Message.RemoveChannel(
+                            channel
+                        )
+                    )
                 } catch (closed: ClosedSendChannelException) {
                     // ignore,we are closed by it
                 }
