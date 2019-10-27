@@ -26,8 +26,8 @@ import org.junit.runners.JUnit4
 class MultiplexTest {
     private val testScope = TestCoroutineScope()
 
-    fun <T> createFlow(f: () -> Flow<T>): ActorPublish<T> {
-        return ActorPublish(testScope, 0, f)
+    fun <T> createFlow(f: () -> Flow<T>): Multiplexer<T> {
+        return Multiplexer(testScope, 0, f)
     }
 
     @Test
@@ -254,7 +254,7 @@ class MultiplexTest {
     @Test
     fun lateArrival_buffered() = testScope.runBlockingTest {
         var createdCount = 0
-        val activeFlow = ActorPublish(
+        val activeFlow = Multiplexer(
             scope = testScope,
             bufferSize = 2,
             source = {

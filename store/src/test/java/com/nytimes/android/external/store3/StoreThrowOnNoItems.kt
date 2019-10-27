@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @ExperimentalCoroutinesApi
 @RunWith(Parameterized::class)
 class StoreThrowOnNoItems(
-        private val storeType: TestStoreType
+    private val storeType: TestStoreType
 ) {
     private val testScope = TestCoroutineScope()
     private val counter = AtomicInteger(0)
@@ -29,11 +29,12 @@ class StoreThrowOnNoItems(
     @Test
     fun testShouldThrowOnFetcherEmitsNoSuckElementException() = testScope.runBlockingTest {
         val simpleStore = TestStoreBuilder.from(
-                fetcher = fetcher
+            scope = testScope,
+            fetcher = fetcher
         ).build(storeType)
 
         whenever(fetcher.fetch(barCode))
-                .thenThrow(NoSuchElementException())
+            .thenThrow(NoSuchElementException())
 
         try {
             simpleStore.get(barCode)

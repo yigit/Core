@@ -2,6 +2,7 @@ package com.nytimes.android.external.store3
 
 import com.nytimes.android.external.store3.base.impl.BarCode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestCoroutineExceptionHandler
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
 import org.assertj.core.api.Assertions.assertThat
@@ -12,11 +13,11 @@ import org.junit.runners.Parameterized
 @ExperimentalCoroutinesApi
 @RunWith(Parameterized::class)
 class ClearStoreMemoryTest(
-        storeType : TestStoreType
+        private val storeType : TestStoreType
 ) {
-    private val testScope = TestCoroutineScope()
+    private val testScope = TestCoroutineScope(TestCoroutineExceptionHandler())
     private var networkCalls = 0
-    private val store = TestStoreBuilder.from<BarCode, Int> {
+    private val store = TestStoreBuilder.from<BarCode, Int>(testScope) {
         networkCalls ++
     }.build(storeType)
 

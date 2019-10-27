@@ -32,7 +32,7 @@ import kotlinx.coroutines.sync.withLock
  */
 
 @ExperimentalCoroutinesApi
-class ActorPublish<T>(
+class Multiplexer<T>(
     /**
      * The [CoroutineScope] to use for upstream subscription
      */

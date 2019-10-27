@@ -3,7 +3,9 @@ package com.nytimes.android.external.store3.pipeline
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -63,7 +65,7 @@ internal class KeyTracker<Key> {
      * Returns a Flow that emits once and then every time the given [key] is invalidated via
      * [invalidate]
      */
-    suspend fun keyFlow(key: Key): Flow<Unit> {
+    fun keyFlow(key: Key): Flow<Unit> {
         // it is important to allocate KeyChannel lazily (ony when the returned flow is collected
         // from). Otherwise, we might just create many of them that are never observed hence never
         // cleaned up
@@ -71,17 +73,16 @@ internal class KeyTracker<Key> {
             val keyChannel = lock.withLock {
                 channels.getOrPut(key) {
                     KeyChannel(
-                            channel = BroadcastChannel<Unit>(Channel.CONFLATED).apply {
-                                // start w/ an initial value.
-                                offer(Unit)
-                            }
+                            channel = ConflatedBroadcastChannel(Unit)
                     )
                 }.also {
                     it.acquire() // refcount
                 }
             }
             try {
-                emitAll(keyChannel.channel.openSubscription())
+                emitAll(keyChannel.channel.asFlow())
+            } catch (th:Throwable){
+                println("key tracker error $th")
             } finally {
                 lock.withLock {
                     keyChannel.release()
@@ -97,7 +98,7 @@ internal class KeyTracker<Key> {
      * A data structure to count how many active flows we have on this channel
      */
     private data class KeyChannel(
-            val channel: BroadcastChannel<Unit>,
+            val channel: ConflatedBroadcastChannel<Unit>,
             var collectors: Int = 0
     ) {
         fun acquire() {
