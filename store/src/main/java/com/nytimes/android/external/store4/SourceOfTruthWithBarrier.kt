@@ -8,12 +8,15 @@ import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -21,40 +24,40 @@ import kotlin.concurrent.withLock
 @ExperimentalCoroutinesApi
 internal class SourceOfTruthWithBarrier<Key, Input, Output>(
     private val delegate: SourceOfTruth<Key, Input, Output>
-) : SourceOfTruth<Key, Input, DataWithOrigin<Output>> {
-    override suspend fun acquire(key: Key) {
-        delegate.acquire(key)
-    }
-
-    override suspend fun release(key: Key) {
-        delegate.release(key)
-    }
-
-    override val defaultOrigin: ResponseOrigin = delegate.defaultOrigin
+) {
     // TODO need to clean these up
     private val barriers = mutableMapOf<Key, ConflatedBroadcastChannel<BarrierMsg>>()
     private val barrierLock = ReentrantLock()
+    private val versionCounter = AtomicLong(0)
 
     private fun getBarrier(key: Key) = barrierLock.withLock {
         barriers.getOrPut(key) {
-            ConflatedBroadcastChannel(BarrierMsg.Initial.INSTANCE)
+            ConflatedBroadcastChannel(BarrierMsg.Open.INITIAL)
         }
     }
 
-    override fun reader(key: Key): Flow<DataWithOrigin<Output>> {
-        return getBarrier(key).asFlow()
+    fun reader(key: Key, lock: CompletableDeferred<Unit>): Flow<DataWithOrigin<Output>> {
+        val barrier = getBarrier(key)
+        var version:Long = INITIAL_VERSION
+        return barrier.asFlow()
             .onStart {
-                acquire(key)
+                version = versionCounter.incrementAndGet()
+                delegate.acquire(key)
+                lock.await()
+                //emit(BarrierMsg.Initial.INSTANCE)
             }
             .onCompletion {
-                reader(key)
+                delegate.release(key)
             }.flatMapLatest {
+                println("barier msg: $it")
+                val messageArrivedAfterMe = version < it.version
                 when (it) {
-                    is BarrierMsg.Initial -> delegate.reader(key).map {
-                        DataWithOrigin<Output>(origin = defaultOrigin, value = it)
-                    }
                     is BarrierMsg.Open -> delegate.reader(key).mapIndexed { index, output ->
-                        DataWithOrigin<Output>(origin = defaultOrigin, value = output)
+                        if (index == 0 && messageArrivedAfterMe) {
+                            DataWithOrigin<Output>(origin = ResponseOrigin.Fetcher, value = output)
+                        } else {
+                            DataWithOrigin<Output>(origin = delegate.defaultOrigin, value = output)
+                        }
                     }
                     is BarrierMsg.Blocked -> {
                         it.ack.complete(Unit)
@@ -64,40 +67,46 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
             }
     }
 
-    override suspend fun write(key: Key, value: Input) {
+    suspend fun write(key: Key, value: Input) {
         // TODO multiple downstream is still broken!
         //  this acking will work only for one
         //  also, it will get stuck if downstream closes but then we would close as well
         val ack = CompletableDeferred<Unit>()
-        getBarrier(key).send(BarrierMsg.Blocked(ack))
-        // TODO do we need ackiing still since we are using a barrier anyways ?
-        //  it is a problem if downstream is suspended since it cannot reply the ack :/
-//        ack.await()
+        getBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet(), ack))
+        println("writing $value")
         delegate.write(key, value)
-        getBarrier(key).send(BarrierMsg.Open.INSTANCE)
+        println("write, lifting barrier")
+        getBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
+        println("lifted barrier")
     }
 
-    override suspend fun delete(key: Key) {
+    suspend fun delete(key: Key) {
         delegate.delete(key)
     }
 
-    override suspend fun getSize(): Int {
+    suspend fun getSize(): Int {
         return delegate.getSize()
     }
 
-    private sealed class BarrierMsg {
-        class Blocked(val ack: CompletableDeferred<Unit>) : BarrierMsg()
-        class Open private constructor() : BarrierMsg() {
+    private sealed class BarrierMsg(
+        val version:Long
+    ) {
+        class Blocked(version:Long, val ack:CompletableDeferred<Unit>) : BarrierMsg(version)
+        class Open(version:Long) : BarrierMsg(version) {
             companion object {
-                val INSTANCE = Open()
+                val INITIAL = Open(INITIAL_VERSION)
             }
         }
+    }
 
-        class Initial private constructor() : BarrierMsg() {
-            companion object {
-                val INSTANCE = Initial()
-            }
-        }
+    companion object {
+        private const val INITIAL_VERSION = -1L
+    }
+}
+
+private inline fun <T, R> Flow<T>.mapIndexed(crossinline block: (Int, T) -> R) = flow {
+    this@mapIndexed.collectIndexed { index, value ->
+        emit(block(index, value))
     }
 }
 
@@ -105,9 +114,3 @@ internal data class DataWithOrigin<T>(
     val origin: ResponseOrigin,
     val value: T?
 )
-
-private inline fun <T, R> Flow<T>.mapIndexed(crossinline block: (Int, T) -> R) = flow {
-    this@mapIndexed.collectIndexed { index, value ->
-        emit(block(index, value))
-    }
-}

@@ -37,8 +37,8 @@ class StoreThrowOnNoItems(
             .thenThrow(NoSuchElementException())
 
         try {
-            simpleStore.get(barCode)
-            fail("exception not thrown when no items emitted from fetcher")
+            val unexpected = simpleStore.get(barCode)
+            fail("exception not thrown when no items emitted from fetcher $unexpected")
         } catch (e: NoSuchElementException) {
             assertThat(e).isInstanceOf(NoSuchElementException::class.java)
         }

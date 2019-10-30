@@ -101,12 +101,15 @@ internal class InMemorySourceOfTruth<Key, Output>
     }
 
     override suspend fun release(key: Key) {
-        val entry = checkNotNull(data[key]) {
-            "on completion of flow, we should've had an entry"
-        }
-        entry.listeners--
-        if (entry.listeners == 0) {
-            data.remove(key)
+        lock.withLock {
+            val entry = checkNotNull(data[key]) {
+                "on completion of flow, we should've had an entry"
+            }
+            entry.listeners--
+            if (entry.listeners == 0) {
+                println("no one is observing $key, delete")
+                data.remove(key)
+            }
         }
     }
 
@@ -122,12 +125,9 @@ internal class InMemorySourceOfTruth<Key, Output>
         }.catch {
             println("error hallened $it")
             throw it
-        }
-            .onCompletion {
+        }.onCompletion {
                 println("key flow end $key")
-            lock.withLock {
-                release(key)
-            }
+            release(key)
         }.map {
             lock.withLock {
                 data[key]?.value

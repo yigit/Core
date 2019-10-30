@@ -1,16 +1,19 @@
 package com.nytimes.android.external.store3.pipeline
 
+import com.nytimes.android.external.store3.TestStoreType
 import com.nytimes.android.external.store3.pipeline.ResponseOrigin.Cache
 import com.nytimes.android.external.store3.pipeline.ResponseOrigin.Fetcher
 import com.nytimes.android.external.store3.pipeline.ResponseOrigin.Persister
 import com.nytimes.android.external.store3.pipeline.StoreResponse.Data
 import com.nytimes.android.external.store3.pipeline.StoreResponse.Loading
+import com.nytimes.android.external.store4.RealInternalCoroutineStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -20,11 +23,13 @@ import kotlinx.coroutines.test.runBlockingTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.junit.runners.JUnit4
+import org.junit.runners.Parameterized
 
 @ExperimentalCoroutinesApi
-@RunWith(JUnit4::class)
-class PipelineStoreTest {
+@RunWith(Parameterized::class)
+class PipelineStoreTest(
+    private val storeType: TestStoreType
+) {
     private val testScope = TestCoroutineScope()
 
     @Test
@@ -33,10 +38,12 @@ class PipelineStoreTest {
             3 to "three-1",
             3 to "three-2"
         )
-        val pipeline = beginNonFlowingPipeline(fetcher::fetch)
-            .withCache()
+        val pipeline = build<Int, String, String>(
+            nonFlowingFetcher = fetcher::fetch,
+            enableCache = true
+        )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertCompleteStream(
+            .assertItems(
                 Loading(
                     origin = Fetcher
                 ), Data(
@@ -45,7 +52,7 @@ class PipelineStoreTest {
                 )
             )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
-            .assertCompleteStream(
+            .assertItems(
                 Data(
                     value = "three-1",
                     origin = Cache
@@ -71,18 +78,18 @@ class PipelineStoreTest {
     }
 
     @Test
-    fun getAndFresh_withPersister() = runBlocking<Unit> {
+    fun getAndFresh_withPersister() = testScope.runBlockingTest {
         val fetcher = FakeFetcher(
             3 to "three-1",
             3 to "three-2"
         )
         val persister = InMemoryPersister<Int, String>()
-        val pipeline = beginNonFlowingPipeline(fetcher::fetch)
-            .withNonFlowPersister(
-                reader = persister::read,
-                writer = persister::write
-            )
-            .withCache()
+        val pipeline = build(
+            nonFlowingFetcher = fetcher::fetch,
+            persisterReader = persister::read,
+            persisterWriter = persister::write,
+            enableCache = true
+        )
         pipeline.stream(StoreRequest.cached(3, refresh = false))
             .assertItems(
                 Loading(
@@ -100,6 +107,7 @@ class PipelineStoreTest {
                     origin = Cache
                 )
             )
+        println("----------------")
         pipeline.stream(StoreRequest.fresh(3))
             .assertItems(
                 Loading(
@@ -127,12 +135,12 @@ class PipelineStoreTest {
         )
         val persister = InMemoryPersister<Int, String>()
 
-        val pipeline = beginNonFlowingPipeline(fetcher::fetch)
-            .withNonFlowPersister(
-                reader = persister::read,
-                writer = persister::write
-            )
-            .withCache()
+        val pipeline = build(
+            nonFlowingFetcher = fetcher::fetch,
+            persisterReader = persister::read,
+            persisterWriter = persister::write,
+            enableCache = true
+        )
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
             .assertItems(
@@ -441,7 +449,7 @@ class PipelineStoreTest {
         }
     }
 
-    private class InMemoryPersister<Key, Output> {
+    class InMemoryPersister<Key, Output> {
         private val data = mutableMapOf<Key, Output>()
 
         @Suppress("RedundantSuspendModifier")// for function reference
@@ -473,7 +481,98 @@ class PipelineStoreTest {
      * Use this if test does not have an infinite flow (e.g. no persister or no infinite fetcher)
      */
     private suspend fun <T> Flow<T>.assertCompleteStream(vararg expected: T) {
-        assertThat(this.toList())
+        assertThat(this.onEach {
+            println("received $it")
+        }.toList())
             .isEqualTo(expected.toList())
+    }
+
+    private fun <Key, Input, Output> build(
+        nonFlowingFetcher: (suspend (Key) -> Input)? = null,
+        flowingFetcher: ((Key) -> Flow<Input>)? = null,
+        persisterReader: (suspend (Key) -> Output?)? = null,
+        flowingPersisterReader : ((Key) -> Flow<Output?>)? = null,
+        persisterWriter: (suspend (Key, Input) -> Unit)? = null,
+        persisterDelete: (suspend (Key) -> Unit)? = null,
+        enableCache: Boolean
+    ): PipelineStore<Key, Output> {
+        check(nonFlowingFetcher != null || flowingFetcher != null) {
+            "need to provide a fetcher"
+        }
+        check(nonFlowingFetcher == null || flowingFetcher == null) {
+            "need 1 fetcher"
+        }
+        check(persisterReader == null || flowingPersisterReader == null) {
+            "need 0 or 1 persister"
+        }
+        if (storeType == TestStoreType.Pipeline) {
+            return if (nonFlowingFetcher != null) {
+                beginNonFlowingPipeline(nonFlowingFetcher)
+            } else {
+                beginPipeline(flowingFetcher!!)
+            }.let {
+                when {
+                    flowingPersisterReader != null -> it.withPersister(
+                        reader = flowingPersisterReader,
+                        writer = persisterWriter!!,
+                        delete = persisterDelete
+                    )
+                    persisterReader != null -> it.withNonFlowPersister(
+                        reader = persisterReader,
+                        writer = persisterWriter!!,
+                        delete = persisterDelete
+                    )
+                    else -> it as PipelineStore<Key, Output>
+                }
+            }.let {
+                if (enableCache) {
+                    it.withCache()
+                } else {
+                    it
+                }
+            }
+        } else if (storeType == TestStoreType.CoroutineInternal) {
+            check(enableCache) {
+                "not cached is not supported yet"
+            }
+            return if (nonFlowingFetcher != null) {
+                RealInternalCoroutineStore.beginWithNonFlowingFetcher<Key, Input, Output>(nonFlowingFetcher)
+            } else {
+                RealInternalCoroutineStore.beginWithFlowingFetcher<Key, Input, Output>(flowingFetcher!!)
+            }.let {
+                when {
+                    flowingPersisterReader != null -> it.persister(
+                        reader = flowingPersisterReader,
+                        writer = persisterWriter!!,
+                        delete = persisterDelete
+                    )
+                    persisterReader != null -> it.nonFlowingPersister(
+                        reader = persisterReader,
+                        writer = persisterWriter!!,
+                        delete = persisterDelete
+                    )
+                    else -> it
+                }
+            }.let {
+                if (enableCache) {
+                    it
+                } else {
+                    it.disableCache()
+                }
+            }.scope(testScope)
+                .build()
+        } else {
+            throw UnsupportedOperationException("cannot test $storeType")
+        }
+    }
+
+
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters(name = "{0}")
+        fun params() = listOf(
+            TestStoreType.Pipeline,
+            TestStoreType.CoroutineInternal
+        )
     }
 }

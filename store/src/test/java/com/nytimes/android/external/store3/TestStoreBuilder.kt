@@ -16,10 +16,8 @@ import com.nytimes.android.external.store3.pipeline.withCache
 import com.nytimes.android.external.store3.pipeline.withKeyConverter
 import com.nytimes.android.external.store3.pipeline.withNonFlowPersister
 import com.nytimes.android.external.store3.util.KeyParser
-import com.nytimes.android.external.store4.InMemorySourceOfTruth
 import com.nytimes.android.external.store4.RealInternalCoroutineStore
 import com.nytimes.android.external.store4.SourceOfTruth
-import com.nytimes.android.external.store4.SourceOfTruthWithBarrier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.flow
 
@@ -216,9 +214,23 @@ data class TestStoreBuilder<Key, Output>(
                     }.open()
                 },
                 builRealInternalCoroutineStore = {
-                    RealInternalCoroutineStore(
-                        scope = scope,
-                        fetcher = {key : Key ->
+//                    RealInternalCoroutineStore(
+//                        scope = scope,
+//                        fetcher = {key : Key ->
+//                            flow {
+//                                val value = fetcher.fetch(key = key)
+//                                if (fetchParser != null) {
+//                                    emit(fetchParser.apply(key, value))
+//                                } else {
+//                                    emit(value)
+//                                }
+//                            }
+//                        },
+//                        database = SourceOfTruth.fromLegacy(persister, postParser),
+//                        memoryPolicy = cacheMemoryPolicy
+//                    ).asLegacyStore()
+                    RealInternalCoroutineStore
+                        .beginWithFlowingFetcher<Key, Output, Output> {key : Key ->
                             flow {
                                 val value = fetcher.fetch(key = key)
                                 if (fetchParser != null) {
@@ -227,10 +239,17 @@ data class TestStoreBuilder<Key, Output>(
                                     emit(value)
                                 }
                             }
-                        },
-                        database = SourceOfTruth.fromLegacy(persister, postParser),
-                        memoryPolicy = cacheMemoryPolicy
-                    ).asLegacyStore()
+                        }
+                        .scope(scope)
+                        .sourceOfTruth(SourceOfTruth.fromLegacy(persister, postParser))
+                        .let {
+                            if (cached) {
+                                it
+                            } else {
+                                it.disableCache()
+                            }
+                        }
+                        .build().asLegacyStore()
                 }
             )
         }
