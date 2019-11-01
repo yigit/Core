@@ -100,7 +100,6 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
         val networkFlow = fetcherController
             .getFetcher(request.key)
             .map {
-                // TODO handle network errors!!!
                 StoreResponse.Data(
                     value = it,
                     origin = ResponseOrigin.Fetcher

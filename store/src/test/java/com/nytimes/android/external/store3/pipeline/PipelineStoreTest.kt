@@ -297,14 +297,17 @@ class PipelineStoreTest(
     @Test
     fun diskChangeWhileNetworkIsFlowing_simple() = testScope.runBlockingTest {
         val persister = InMemoryPersister<Int, String>().asObservable()
-        val pipeline = beginPipeline<Int, String> {
-            flow {
-                // never emit
-            }
-        }.withPersister(
-            reader = persister::flowReader,
-            writer = persister::flowWriter
+        val pipeline = build(
+            flowingFetcher = {
+                flow {
+
+                }
+            },
+            flowingPersisterReader = persister::flowReader,
+            persisterWriter = persister::flowWriter,
+            enableCache = false
         )
+
         launch {
             delay(10)
             persister.flowWriter(3, "local-1")
@@ -325,16 +328,18 @@ class PipelineStoreTest(
     @Test
     fun diskChangeWhileNetworkIsFlowing_overwrite() = testScope.runBlockingTest {
         val persister = InMemoryPersister<Int, String>().asObservable()
-        val pipeline = beginPipeline<Int, String> {
-            flow {
-                delay(10)
-                emit("three-1")
-                delay(10)
-                emit("three-2")
-            }
-        }.withPersister(
-            reader = persister::flowReader,
-            writer = persister::flowWriter
+        val pipeline = build(
+            flowingFetcher = {
+                flow {
+                    delay(10)
+                    emit("three-1")
+                    delay(10)
+                    emit("three-2")
+                }
+            },
+            flowingPersisterReader = persister::flowReader,
+            persisterWriter = persister::flowWriter,
+            enableCache = false
         )
         launch {
             delay(5)
@@ -371,11 +376,13 @@ class PipelineStoreTest(
     fun errorTest() = testScope.runBlockingTest {
         val exception = IllegalArgumentException("wow")
         val persister = InMemoryPersister<Int, String>().asObservable()
-        val pipeline = beginNonFlowingPipeline<Int, String> { key: Int ->
-            throw exception
-        }.withPersister(
-            reader = persister::flowReader,
-            writer = persister::flowWriter
+        val pipeline = build(
+            nonFlowingFetcher = {
+                throw exception
+            },
+            flowingPersisterReader = persister::flowReader,
+            persisterWriter = persister::flowWriter,
+            enableCache = false
         )
         launch {
             delay(10)
