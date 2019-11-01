@@ -1,12 +1,12 @@
 package com.nytimes.android.external.store3.multiplex
 
-import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.Cleanup
 import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.DispatchError
 import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.DispatchValue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
@@ -34,38 +34,47 @@ class SharedFlowProducer<T>(
      * Starts the collection of the upstream flow.
      */
     fun start() {
+        // TODO somehow, this sends into the old channel
+        println("producer $this started with $channelManager")
         scope.launch {
-            // launch again to track the collection job
-            collectionJob = scope.launch {
-                src.catch {
-                    channelManager.send(
-                        DispatchError(
-                            it
+            try {
+                // launch again to track the collection job
+                collectionJob = scope.launch {
+                    src.catch {
+                        println("${this@SharedFlowProducer}: ${channelManager}src error $it")
+                        channelManager.send(
+                            DispatchError(
+                                it
+                            )
                         )
-                    )
-                }.collect {
-                    val ack = CompletableDeferred<Unit>()
-                    channelManager.send(
-                        DispatchValue(
-                            it,
-                            ack
+                    }.collect {
+                        println("${this@SharedFlowProducer}:${channelManager}source value $it")
+                        val ack = CompletableDeferred<Unit>()
+                        channelManager.send(
+                            DispatchValue(
+                                it,
+                                ack
+                            )
                         )
-                    )
-                    // suspend until at least 1 receives the new value
-                    ack.await()
+                        // suspend until at least 1 receives the new value
+                        ack.await()
+                    }
+                    println("src finished")
                 }
+                // wait until collection ends, either due to an error or ordered by the channel
+                // manager
+                collectionJob.join()
+                println("collection job finished")
+            } finally {
+                println("[$channelManager] sending cleanup")
+                // cleanup the channel manager so that downstreams can be closed if they are not
+                // closed already and leftovers can be moved to a new collector if necessary.
+                channelManager.send(ChannelManager.Message.UpstreamFinished(this@SharedFlowProducer))
             }
-            // launch to observe channelManager in case it closes
-            scope.launch {
-                channelManager.finished.await()
-                collectionJob.cancel()
-            }
-            // wait until collection ends, either due to an error or ordered by the channel
-            // manager
-            collectionJob.join()
-            // cleanup the channel manager so that downstreams can be closed if they are not
-            // closed already and leftovers can be moved to a new collector if necessary.
-            channelManager.send(Cleanup())
         }
+    }
+
+    suspend fun cancelAndJoin() {
+        collectionJob.cancelAndJoin()
     }
 }

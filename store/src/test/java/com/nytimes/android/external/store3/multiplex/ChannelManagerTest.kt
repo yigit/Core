@@ -9,8 +9,10 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
 import org.assertj.core.api.Assertions.assertThat
@@ -26,9 +28,17 @@ class ChannelManagerTest {
     private val manager = ChannelManager<String>(
         scope,
         0,
-        {}) { restart ->
-        check(!restart)
-    }
+        {
+            SharedFlowProducer(
+                scope, src =
+                flow<String> {
+                    suspendCancellableCoroutine<String> {
+                        // never end
+                    }
+                },
+                channelManager = it
+            )
+        })
 
     @Test
     fun simple() = scope.runBlockingTest {
@@ -47,7 +57,6 @@ class ChannelManagerTest {
 
         val ack2 = CompletableDeferred<Unit>()
         manager.send(DispatchValue("b", ack2))
-        manager.finished.await()
         assertThat(collection.await()).isEqualTo(listOf("a", "b"))
     }
 }

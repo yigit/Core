@@ -4,6 +4,7 @@ import com.nytimes.android.external.store3.base.impl.Store
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.transform
 
 // possible replacement for [Store] as an internal only representation
@@ -27,8 +28,12 @@ fun <Key, Output> PipelineStore<Key, Output>.open(): Store<Output, Key> {
     return object : Store<Output, Key> {
         override suspend fun get(key: Key) = self.stream(
             StoreRequest.cached(key, refresh = false)
-        ).filterNot {
+        ).onEach {
+            println("received $it")
+        }.filterNot {
             it is StoreResponse.Loading
+        }.onEach {
+            println("passed filter $it")
         }.first().requireData()
 
         override suspend fun fresh(key: Key) = self.stream(

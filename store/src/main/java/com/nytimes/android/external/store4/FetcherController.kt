@@ -22,7 +22,7 @@ import kotlin.concurrent.withLock
 @ExperimentalCoroutinesApi
 internal class FetcherController<Key, Input, Output>(
     private val scope: CoroutineScope,
-    private val fetcher: (Key) -> Flow<Input>,
+    private val realFetcher: (Key) -> Flow<Input>,
     private val sourceOfTruth: SourceOfTruthWithBarrier<Key, Input, Output>
 ) {
     private val fetchers = mutableMapOf<Key, Multiplexer<Input>>()
@@ -34,24 +34,15 @@ internal class FetcherController<Key, Input, Output>(
                     scope = scope,
                     bufferSize = 0,
                     source = {
-                        fetcherForKey(key)
+                        realFetcher(key).onEach {
+                            sourceOfTruth.write(key, it)
+                        }
                     }
                 )
             }
         }
         return multiplexer.create()
     }
-
-    fun createSubscription(key: Key) = ManagedFetcherSubscription(
-        scope = scope,
-        key = key,
-        src = ::getFetcher
-    )
-
-    private fun fetcherForKey(key: Key) = fetcher(key)
-        .onEach {
-            sourceOfTruth.write(key, it)
-        }
 
     class ManagedFetcherSubscription<Key, Input>(
         private val scope: CoroutineScope,

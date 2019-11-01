@@ -26,14 +26,14 @@ import org.junit.runners.JUnit4
 class MultiplexTest {
     private val testScope = TestCoroutineScope()
 
-    fun <T> createFlow(f: () -> Flow<T>): Multiplexer<T> {
+    fun <T> createMultiplexer(f: () -> Flow<T>): Multiplexer<T> {
         return Multiplexer(testScope, 0, f)
     }
 
     @Test
     fun serialial_notShared() = testScope.runBlockingTest {
         var createCnt = 0
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             createCnt++
             when (createCnt) {
                 1 -> flowOf("a", "b", "c")
@@ -49,7 +49,7 @@ class MultiplexTest {
 
     @Test
     fun slowFastCollector() = testScope.runBlockingTest {
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flowOf("a", "b", "c").onStart {
                 // make sure both registers on time so that no one drops a value
                 delay(100)
@@ -75,7 +75,7 @@ class MultiplexTest {
 
     @Test
     fun slowDispatcher() = testScope.runBlockingTest {
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flowOf("a", "b", "c").onEach {
                 delay(100)
             }
@@ -92,7 +92,7 @@ class MultiplexTest {
 
     @Test
     fun lateToTheParty_arrivesAfterUpstreamClosed() = testScope.runBlockingTest {
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flowOf("a", "b", "c").onStart {
                 delay(100)
             }
@@ -112,7 +112,7 @@ class MultiplexTest {
     @Test
     fun lateToTheParty_arrivesBeforeUpstreamClosed() = testScope.runBlockingTest {
         var generationCounter = 0
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flow {
                 val gen = generationCounter++
                 check(gen < 2) {
@@ -151,7 +151,7 @@ class MultiplexTest {
     fun upstreamError() = testScope.runBlockingTest {
         val exception =
             MyCustomException("hey")
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flow {
                 emit("a")
                 throw exception
@@ -182,7 +182,7 @@ class MultiplexTest {
             MyCustomException("hey")
         val dispatchedFirstValue = CompletableDeferred<Unit>()
         val registeredSecondCollector = CompletableDeferred<Unit>()
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flow {
                 emit("a")
                 dispatchedFirstValue.complete(Unit)
@@ -222,7 +222,7 @@ class MultiplexTest {
     fun lateArrival_unregistersFromTheCorrectManager() = testScope.runBlockingTest {
         var createdCount = 0
         var didntFinish = false
-        val activeFlow = createFlow {
+        val activeFlow = createMultiplexer {
             flow {
                 check(createdCount < 2) {
                     "created 1 too many"
@@ -239,7 +239,7 @@ class MultiplexTest {
         val firstCollector = async {
             activeFlow.create().onEach { delay(5) }.take(2).toList()
         }
-        delay(10) // miss first two values
+        delay(11) // miss first two values
         val secondCollector = async {
             // this will come in a new channel
             activeFlow.create().take(2).toList()

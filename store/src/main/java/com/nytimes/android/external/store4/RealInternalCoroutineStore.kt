@@ -49,7 +49,7 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
     }
     private val fetcherController = FetcherController(
         scope = scope,
-        fetcher = fetcher,
+        realFetcher = fetcher,
         sourceOfTruth = sourceOfTruth
     )
 
@@ -65,7 +65,6 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
             .onStart {
                 if (!request.shouldSkipCache(CacheType.MEMORY)) {
                     memCache?.getIfPresent(request.key)?.let { cached ->
-                        println("emitting cached $cached")
                         emit(StoreResponse.Data(value = cached, origin = ResponseOrigin.Cache))
                     }
                 }
@@ -116,12 +115,8 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
             }
             .onStart {
                 if (!request.shouldSkipCache(CacheType.DISK)) {
-                    println("awaiting network lock")
                     // wait until network gives us the go
                     networkLock.await()
-                    println("network active now")
-                } else {
-                    println("network active immediately")
                 }
                 emit(
                     StoreResponse.Loading(
@@ -176,7 +171,9 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
                     networkLock.complete(Unit)
                 }
             }
-        }
+        }.onEach {
+                println("emitting $it")
+            }
     }
 
     // used to control the disk flow when combined with network

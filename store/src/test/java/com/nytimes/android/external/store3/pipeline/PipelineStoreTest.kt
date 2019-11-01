@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
 import org.assertj.core.api.Assertions.assertThat
@@ -107,7 +106,6 @@ class PipelineStoreTest(
                     origin = Cache
                 )
             )
-        println("----------------")
         pipeline.stream(StoreRequest.fresh(3))
             .assertItems(
                 Loading(
@@ -179,11 +177,13 @@ class PipelineStoreTest(
             3 to "three-1",
             3 to "three-2"
         )
-        val pipeline = beginNonFlowingPipeline(fetcher::fetch)
-            .withCache()
+        val pipeline = build<Int, String, String>(
+            nonFlowingFetcher = fetcher::fetch,
+            enableCache = true
+        )
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertCompleteStream(
+            .assertItems(
                 Loading(
                     origin = Fetcher
                 ),
@@ -194,7 +194,7 @@ class PipelineStoreTest(
             )
 
         pipeline.stream(StoreRequest.cached(3, refresh = true))
-            .assertCompleteStream(
+            .assertItems(
                 Data(
                     value = "three-1",
                     origin = Cache
@@ -215,11 +215,13 @@ class PipelineStoreTest(
             3 to "three-1",
             3 to "three-2"
         )
-        val pipeline = beginNonFlowingPipeline(fetcher::fetch)
-            .withCache()
+        val pipeline = build<Int, String, String>(
+            nonFlowingFetcher = fetcher::fetch,
+            enableCache = true
+        )
 
         pipeline.stream(StoreRequest.skipMemory(3, refresh = false))
-            .assertCompleteStream(
+            .assertItems(
                 Loading(
                     origin = Fetcher
                 ),
@@ -230,7 +232,7 @@ class PipelineStoreTest(
             )
 
         pipeline.stream(StoreRequest.skipMemory(3, refresh = false))
-            .assertCompleteStream(
+            .assertItems(
                 Loading(
                     origin = Fetcher
                 ),
@@ -249,11 +251,13 @@ class PipelineStoreTest(
         )
         val persister = InMemoryPersister<Int, String>()
 
-        val pipeline = beginPipeline(fetcher::createFlow)
-            .withNonFlowPersister(
-                reader = persister::read,
-                writer = persister::write
-            )
+        val pipeline = build(
+            flowingFetcher = fetcher::createFlow,
+            persisterReader = persister::read,
+            persisterWriter = persister::write,
+            enableCache = false
+        )
+
         pipeline.stream(StoreRequest.fresh(3))
             .assertItems(
                 Loading(
@@ -269,23 +273,25 @@ class PipelineStoreTest(
                 )
             )
 
-        pipeline.stream(StoreRequest.cached(3, refresh = true)).assertItems(
-            Data(
-                value = "three-2",
-                origin = Persister
-            ),
-            Loading(
-                origin = Fetcher
-            ),
-            Data(
-                value = "three-1",
-                origin = Fetcher
-            ),
-            Data(
-                value = "three-2",
-                origin = Fetcher
+        println("------------------")
+        pipeline.stream(StoreRequest.cached(3, refresh = true))
+            .assertItems(
+                Data(
+                    value = "three-2",
+                    origin = Persister
+                ),
+                Loading(
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-1",
+                    origin = Fetcher
+                ),
+                Data(
+                    value = "three-2",
+                    origin = Fetcher
+                )
             )
-        )
     }
 
     @Test
@@ -428,6 +434,7 @@ class PipelineStoreTest(
             responses.filter {
                 it.first == key
             }.forEach {
+                println("fake fetcher emitting ${it.second}")
                 emit(it.second)
                 delay(1)
             }
@@ -472,18 +479,9 @@ class PipelineStoreTest(
      * Use this when Pipeline has an infinite part (e.g. Persister or a never ending fetcher)
      */
     private suspend fun <T> Flow<T>.assertItems(vararg expected: T) {
-        assertThat(this.take(expected.size).toList())
-            .isEqualTo(expected.toList())
-    }
-
-    /**
-     * Takes all elements from the stream and asserts them.
-     * Use this if test does not have an infinite flow (e.g. no persister or no infinite fetcher)
-     */
-    private suspend fun <T> Flow<T>.assertCompleteStream(vararg expected: T) {
         assertThat(this.onEach {
-            println("received $it")
-        }.toList())
+            println("received in assert items $it")
+        }.take(expected.size).toList())
             .isEqualTo(expected.toList())
     }
 
@@ -532,9 +530,6 @@ class PipelineStoreTest(
                 }
             }
         } else if (storeType == TestStoreType.CoroutineInternal) {
-            check(enableCache) {
-                "not cached is not supported yet"
-            }
             return if (nonFlowingFetcher != null) {
                 RealInternalCoroutineStore.beginWithNonFlowingFetcher<Key, Input, Output>(nonFlowingFetcher)
             } else {

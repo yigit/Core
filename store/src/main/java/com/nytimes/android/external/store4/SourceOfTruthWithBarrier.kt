@@ -73,11 +73,11 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
         //  also, it will get stuck if downstream closes but then we would close as well
         val ack = CompletableDeferred<Unit>()
         getBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet(), ack))
-        println("writing $value")
+        println("[${Thread.currentThread().name}]writing $value")
         delegate.write(key, value)
-        println("write, lifting barrier")
+        println("[${Thread.currentThread().name}]write, lifting barrier $value")
         getBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
-        println("lifted barrier")
+        println("[${Thread.currentThread().name}]lifted barrier $value")
     }
 
     suspend fun delete(key: Key) {

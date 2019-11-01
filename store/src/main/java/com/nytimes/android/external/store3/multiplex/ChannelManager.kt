@@ -2,7 +2,6 @@ package com.nytimes.android.external.store3.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import java.util.ArrayDeque
@@ -13,6 +12,14 @@ import java.util.Collections
  * in parallel. As soon as one of them receives the value, the ack in the dispatch message is
  * completed so that the sender can continue for the next item.
  */
+
+// TODO
+//  there is still a bug in here where we might receive other buffered messages after a cleanup.
+//  given that this is in theory non-blocking, we might be able to avoid that by using a rendezvous
+//  channel but not sure if that'll work as desired.
+//  we might also be simply not ack any add channel requests after being cleaned up but what if it
+//  is remove channel and that remove channel happens to arrive after leftovers are carried over.
+//  we need further locking to ensure this won't happen and no one can subscribe nor hold our lock.
 @ExperimentalCoroutinesApi
 class ChannelManager<T>(
     /**
@@ -27,34 +34,19 @@ class ChannelManager<T>(
      * Called when the channel manager is active (e.g. it has downstream collectors and needs a
      * producer)
      */
-    private val onActive: (ChannelManager<T>) -> Unit,
-    /**
-     * Called when the ChannelManager closes. The callback must deal with any leftovers
-     */
-    private val onClosed: suspend (Boolean) -> Unit
-) : StoreActor<ChannelManager.Message<T>>(scope) {
+    private val onActive: (ChannelManager<T>) -> SharedFlowProducer<T>
+) : StoreRealActor<ChannelManager.Message<T>>(scope) {
     private val buffer = Buffer<T>(bufferSize)
     /**
-     * backing completable for [finished] that gets completed when this channel manager is done.
+     * The current producer
      */
-    private val _lostAllChannelsAck = CompletableDeferred<Unit>()
-    /**
-     * Downstream consumers that arrived while we were active but didn't receive any value even
-     * though upstream dispatched some values.
-     * They'll be taken over by a follow-up [ChannelManager].
-     */
-    private lateinit var leftovers: MutableList<ChannelEntry<T>>
-    /**
-     * Set when we first dispatch a value or an error. This allows us to decide what to do with
-     * downstream subscribers who didn't receive any value.
-     */
-    private var dispatchedValue = false
+    private var producer:SharedFlowProducer<T>? = null
 
     /**
-     * Completed when this ChannelManager is done.
+     * Tracks whether we've ever dispatched value or error from the current producer.
+     * Reset when producer finishes.
      */
-    val finished
-        get() : Deferred<Unit> = _lostAllChannelsAck
+    private var dispatchedValue:Boolean = false
 
     /**
      * List of downstream collectors.
@@ -62,13 +54,14 @@ class ChannelManager<T>(
     private val channels = mutableListOf<ChannelEntry<T>>()
 
     override suspend fun handle(msg: Message<T>) {
+        println("$this upstream msg $msg")
         when (msg) {
             is Message.AddLeftovers -> doAddLefovers(msg.leftovers)
             is Message.AddChannel -> doAdd(msg)
             is Message.RemoveChannel -> doRemove(msg.channel)
             is Message.DispatchValue -> doDispatchValue(msg)
             is Message.DispatchError -> doDispatchError(msg)
-            is Message.Cleanup -> doCleanup()
+            is Message.UpstreamFinished -> doHandleUpstreamClose(msg.producer)
         }
     }
 
@@ -76,9 +69,15 @@ class ChannelManager<T>(
      * We are closing. Do a cleanup on existing channels where we'll close them and also decide
      * on the list of leftovers.
      */
-    private suspend fun doCleanup() {
+    suspend fun doHandleUpstreamClose(producer: SharedFlowProducer<T>?) {
+        if (this.producer !== producer) {
+            println("a different producer stopped. we must've closed it, ignoring")
+            return
+        }
+        println("handling upstream close...")
         val leftovers = mutableListOf<ChannelEntry<T>>()
         channels.forEach {
+            println("received value? ${it.receivedValue}")
             when {
                 it.receivedValue -> it.close()
                 dispatchedValue ->
@@ -89,11 +88,12 @@ class ChannelManager<T>(
                     it.close()
             }
         }
-        this.leftovers = leftovers // keep leftovers, they'll be cleaned in setNext of the next one
         channels.clear() // empty references
-        close()
-        _lostAllChannelsAck.complete(Unit)
-        onClosed(leftovers.isNotEmpty())
+        channels.addAll(leftovers)
+        this.producer = null
+        if (leftovers.isNotEmpty()) {
+            activateIfNecessary(true)
+        }
     }
 
     /**
@@ -121,14 +121,15 @@ class ChannelManager<T>(
     /**
      * Remove a downstream collector.
      */
-    private fun doRemove(channel: Channel<Message.DispatchValue<T>>) {
+    private suspend fun doRemove(channel: Channel<Message.DispatchValue<T>>) {
         val index = channels.indexOfFirst {
             it.hasChannel(channel)
         }
         if (index >= 0) {
             channels.removeAt(index)
             if (channels.isEmpty()) {
-                _lostAllChannelsAck.complete(Unit)
+                println("$this removed all channels")
+                producer?.cancelAndJoin()
             }
         }
     }
@@ -143,9 +144,7 @@ class ChannelManager<T>(
                 entry = channelEntry.copy(_receivedValue = false)
             )
         }
-        if (wasEmpty) {
-            onActive(this)
-        }
+        activateIfNecessary(wasEmpty)
     }
 
     /**
@@ -160,8 +159,15 @@ class ChannelManager<T>(
                 onSubscribed = msg.onSubscribed
             )
         )
-        if (wasEmpty) {
-            onActive(this)
+        activateIfNecessary(wasEmpty)
+    }
+
+    private fun activateIfNecessary(wasEmpty: Boolean) {
+        if (producer == null && wasEmpty) {
+            println("activating...")
+            producer = onActive(this)
+            dispatchedValue = false
+            producer!!.start()
         }
     }
 
@@ -179,30 +185,15 @@ class ChannelManager<T>(
             "$entry already received a value"
         }
         channels.add(entry)
-
-        entry.onSubscribed(this)
-        // if there is anything in the buffer, send it
-        buffer.items.forEach {
-            entry.dispatchValue(it)
-        }
-    }
-
-    /**
-     * Assign the followup [ChannelManager] such that we'll transfer our leftovers to it.
-     */
-    fun setNext(channelManager: ChannelManager<T>) {
-        // we don't check for closed here because it shouldn't be closed by now
-        if (leftovers.isNotEmpty()) {
-            val accepted = channelManager.offer(
-                Message.AddLeftovers(
-                    ArrayList(leftovers)
-                )
-            )
-            check(accepted) {
-                "couldn't carry over leftovers"
+        if (buffer.items.isNotEmpty()) {
+            entry.onSubscribed(this)
+            // if there is anything in the buffer, send it
+            buffer.items.forEach {
+                entry.dispatchValue(it)
             }
+        } else {
+            println("$this buffer empty or late arrival after intend to close")
         }
-        leftovers.clear()
     }
 
     /**
@@ -228,6 +219,7 @@ class ChannelManager<T>(
             get() = _receivedValue
 
         suspend fun dispatchValue(value: Message.DispatchValue<T>) {
+            println("dispatching $value to $channel")
             _receivedValue = true
             channel.send(value)
         }
@@ -271,11 +263,6 @@ class ChannelManager<T>(
         class RemoveChannel<T>(val channel: Channel<DispatchValue<T>>) : Message<T>()
 
         /**
-         * Cleanup all channels, the producer is done
-         */
-        class Cleanup<T> : Message<T>()
-
-        /**
          * Upstream dispatched a new value, send it to all downstream items
          */
         class DispatchValue<T>(
@@ -298,6 +285,13 @@ class ChannelManager<T>(
              * The error sent by the upstream
              */
             val error: Throwable
+        ) : Message<T>()
+
+        class UpstreamFinished<T>(
+            /**
+             * SharedFlowProducer finished emitting
+             */
+            val producer: SharedFlowProducer<T>
         ) : Message<T>()
     }
 

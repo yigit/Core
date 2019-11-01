@@ -2,6 +2,7 @@ package com.nytimes.android.external.store3.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -17,16 +18,24 @@ abstract class StoreActor<T>(
     private val inboundChannel = Channel<Packet<T>>(Channel.UNLIMITED)
     init {
         scope.launch {
-            inboundChannel.consumeEach {
-                handle(it.data)
-                it.ack.complete(Unit)
+            try {
+                inboundChannel.consumeEach {
+                    handle(it.data)
+                    it.ack.complete(Unit)
+                }
+            } finally {
+                inboundChannel.close()
+                onClose()
             }
         }
     }
 
+    abstract suspend fun onClose()
     abstract suspend fun handle(msg: T)
 
     suspend fun send(msg: T) {
+        Dispatchers.Main.immediate
+        println("sending msg $msg to $this")
         val ack = CompletableDeferred<Unit>()
         val packet = Packet(msg, ack)
         inboundChannel.send(packet)
