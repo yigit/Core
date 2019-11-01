@@ -129,19 +129,6 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
         val diskFlow = sourceOfTruth.reader(request.key, diskLock)
         // track this to avoid dispatching same local data due to network events
         return networkFlow.merge(diskFlow.withIndex())
-            .onStart {
-                // TODO consalidate these acquire/releases we don't need this many everywhere
-                //  probably just here is enough
-
-                // TODO this acquire might hold the value but inadvertanly make us think that a
-                //  fetcher value is a disk value, even though it was fetched after we've subscribed
-                //  because inner source does not know that we've subscribed earlier so we'll still
-                //  be reading it as if it was fetched before us.
-                //  by having a time value here, we can let it evaluate to proper type even though
-                //  we are or we are not fetching the value
-            }.onCompletion {
-
-            }
             .transform {
             if (it is Either.Left) {
                 if (it.value !is StoreResponse.Data<*>) {

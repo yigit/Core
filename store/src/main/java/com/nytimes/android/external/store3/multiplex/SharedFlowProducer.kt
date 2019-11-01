@@ -34,21 +34,17 @@ class SharedFlowProducer<T>(
      * Starts the collection of the upstream flow.
      */
     fun start() {
-        // TODO somehow, this sends into the old channel
-        println("producer $this started with $channelManager")
         scope.launch {
             try {
                 // launch again to track the collection job
                 collectionJob = scope.launch {
                     src.catch {
-                        println("${this@SharedFlowProducer}: ${channelManager}src error $it")
                         channelManager.send(
                             DispatchError(
                                 it
                             )
                         )
                     }.collect {
-                        println("${this@SharedFlowProducer}:${channelManager}source value $it")
                         val ack = CompletableDeferred<Unit>()
                         channelManager.send(
                             DispatchValue(
@@ -59,14 +55,11 @@ class SharedFlowProducer<T>(
                         // suspend until at least 1 receives the new value
                         ack.await()
                     }
-                    println("src finished")
                 }
                 // wait until collection ends, either due to an error or ordered by the channel
                 // manager
                 collectionJob.join()
-                println("collection job finished")
             } finally {
-                println("[$channelManager] sending cleanup")
                 // cleanup the channel manager so that downstreams can be closed if they are not
                 // closed already and leftovers can be moved to a new collector if necessary.
                 channelManager.send(ChannelManager.Message.UpstreamFinished(this@SharedFlowProducer))

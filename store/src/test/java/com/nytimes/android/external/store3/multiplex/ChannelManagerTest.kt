@@ -45,7 +45,7 @@ class ChannelManagerTest {
         val collection = async {
             val channel = Channel<DispatchValue<String>>(Channel.UNLIMITED)
             try {
-                manager.send(AddChannel(channel) {})
+                manager.send(AddChannel(channel))
                 channel.consumeAsFlow().take(2).toList()
                     .map { it.value }
             } finally {

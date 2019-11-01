@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
+import kotlinx.coroutines.yield
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -273,7 +274,6 @@ class PipelineStoreTest(
                 )
             )
 
-        println("------------------")
         pipeline.stream(StoreRequest.cached(3, refresh = true))
             .assertItems(
                 Data(
@@ -441,9 +441,8 @@ class PipelineStoreTest(
             responses.filter {
                 it.first == key
             }.forEach {
-                println("fake fetcher emitting ${it.second}")
                 emit(it.second)
-                delay(1)
+                yield() // to avoid collapsing values for the tests
             }
         }
     }
@@ -486,9 +485,7 @@ class PipelineStoreTest(
      * Use this when Pipeline has an infinite part (e.g. Persister or a never ending fetcher)
      */
     private suspend fun <T> Flow<T>.assertItems(vararg expected: T) {
-        assertThat(this.onEach {
-            println("received in assert items $it")
-        }.take(expected.size).toList())
+        assertThat(this.take(expected.size).toList())
             .isEqualTo(expected.toList())
     }
 

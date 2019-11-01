@@ -40,13 +40,13 @@ class ChannelManager<T>(
     /**
      * The current producer
      */
-    private var producer:SharedFlowProducer<T>? = null
+    private var producer: SharedFlowProducer<T>? = null
 
     /**
      * Tracks whether we've ever dispatched value or error from the current producer.
      * Reset when producer finishes.
      */
-    private var dispatchedValue:Boolean = false
+    private var dispatchedValue: Boolean = false
 
     /**
      * List of downstream collectors.
@@ -54,7 +54,6 @@ class ChannelManager<T>(
     private val channels = mutableListOf<ChannelEntry<T>>()
 
     override suspend fun handle(msg: Message<T>) {
-        println("$this upstream msg $msg")
         when (msg) {
             is Message.AddLeftovers -> doAddLefovers(msg.leftovers)
             is Message.AddChannel -> doAdd(msg)
@@ -71,13 +70,10 @@ class ChannelManager<T>(
      */
     suspend fun doHandleUpstreamClose(producer: SharedFlowProducer<T>?) {
         if (this.producer !== producer) {
-            println("a different producer stopped. we must've closed it, ignoring")
             return
         }
-        println("handling upstream close...")
         val leftovers = mutableListOf<ChannelEntry<T>>()
         channels.forEach {
-            println("received value? ${it.receivedValue}")
             when {
                 it.receivedValue -> it.close()
                 dispatchedValue ->
@@ -128,7 +124,6 @@ class ChannelManager<T>(
         if (index >= 0) {
             channels.removeAt(index)
             if (channels.isEmpty()) {
-                println("$this removed all channels")
                 producer?.cancelAndJoin()
             }
         }
@@ -155,8 +150,7 @@ class ChannelManager<T>(
 
         addEntry(
             entry = ChannelEntry(
-                channel = msg.channel,
-                onSubscribed = msg.onSubscribed
+                channel = msg.channel
             )
         )
         activateIfNecessary(wasEmpty)
@@ -164,7 +158,6 @@ class ChannelManager<T>(
 
     private fun activateIfNecessary(wasEmpty: Boolean) {
         if (producer == null && wasEmpty) {
-            println("activating...")
             producer = onActive(this)
             dispatchedValue = false
             producer!!.start()
@@ -186,13 +179,10 @@ class ChannelManager<T>(
         }
         channels.add(entry)
         if (buffer.items.isNotEmpty()) {
-            entry.onSubscribed(this)
             // if there is anything in the buffer, send it
             buffer.items.forEach {
                 entry.dispatchValue(it)
             }
-        } else {
-            println("$this buffer empty or late arrival after intend to close")
         }
     }
 
@@ -207,19 +197,12 @@ class ChannelManager<T>(
         /**
          * Tracking whether we've ever dispatched a value or an error to downstream
          */
-        private var _receivedValue: Boolean = false,
-        /**
-         * called back when a downstream's Add request is handled so that it knows whom it is
-         * attached to. This might be called multiple times of the downstream is transferred into
-         * a new ChannelManager.
-         */
-        val onSubscribed: (ChannelManager<T>) -> Unit
+        private var _receivedValue: Boolean = false
     ) {
         val receivedValue
             get() = _receivedValue
 
         suspend fun dispatchValue(value: Message.DispatchValue<T>) {
-            println("dispatching $value to $channel")
             _receivedValue = true
             channel.send(value)
         }
@@ -246,8 +229,7 @@ class ChannelManager<T>(
          * Add a new channel, that means a new downstream subscriber
          */
         class AddChannel<T>(
-            val channel: Channel<DispatchValue<T>>,
-            val onSubscribed: (ChannelManager<T>) -> Unit
+            val channel: Channel<DispatchValue<T>>
         ) : Message<T>()
 
         /**

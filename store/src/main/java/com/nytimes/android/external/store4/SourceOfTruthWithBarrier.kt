@@ -8,14 +8,11 @@ import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.collectIndexed
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -38,18 +35,16 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
 
     fun reader(key: Key, lock: CompletableDeferred<Unit>): Flow<DataWithOrigin<Output>> {
         val barrier = getBarrier(key)
-        var version:Long = INITIAL_VERSION
+        var version: Long = INITIAL_VERSION
         return barrier.asFlow()
             .onStart {
                 version = versionCounter.incrementAndGet()
                 delegate.acquire(key)
                 lock.await()
-                //emit(BarrierMsg.Initial.INSTANCE)
             }
             .onCompletion {
                 delegate.release(key)
             }.flatMapLatest {
-                println("barier msg: $it")
                 val messageArrivedAfterMe = version < it.version
                 when (it) {
                     is BarrierMsg.Open -> delegate.reader(key).mapIndexed { index, output ->
@@ -73,26 +68,19 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
         //  also, it will get stuck if downstream closes but then we would close as well
         val ack = CompletableDeferred<Unit>()
         getBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet(), ack))
-        println("[${Thread.currentThread().name}]writing $value")
         delegate.write(key, value)
-        println("[${Thread.currentThread().name}]write, lifting barrier $value")
         getBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
-        println("[${Thread.currentThread().name}]lifted barrier $value")
     }
 
     suspend fun delete(key: Key) {
         delegate.delete(key)
     }
 
-    suspend fun getSize(): Int {
-        return delegate.getSize()
-    }
-
     private sealed class BarrierMsg(
-        val version:Long
+        val version: Long
     ) {
-        class Blocked(version:Long, val ack:CompletableDeferred<Unit>) : BarrierMsg(version)
-        class Open(version:Long) : BarrierMsg(version) {
+        class Blocked(version: Long, val ack: CompletableDeferred<Unit>) : BarrierMsg(version)
+        class Open(version: Long) : BarrierMsg(version) {
             companion object {
                 val INITIAL = Open(INITIAL_VERSION)
             }
