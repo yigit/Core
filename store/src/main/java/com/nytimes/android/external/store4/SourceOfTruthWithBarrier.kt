@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -41,9 +40,9 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
 
     private fun acquireBarrier(key: Key) = barrierLock.withLock {
         barriers.getOrPut(key) {
-            Barrier().also {
-                it.acquire()
-            }
+            Barrier()
+        }.also {
+            it.acquire()
         }
     }
 
@@ -98,9 +97,15 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
     }
 
     suspend fun write(key: Key, value: Input) {
-        acquireBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet()))
-        delegate.write(key, value)
-        acquireBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
+        val barrier = acquireBarrier(key)
+        try {
+            barrier.send(BarrierMsg.Blocked(versionCounter.incrementAndGet()))
+            delegate.write(key, value)
+            barrier.send(BarrierMsg.Open(versionCounter.incrementAndGet()))
+        } finally {
+            releaseBarrier(key, barrier)
+        }
+
     }
 
     suspend fun delete(key: Key) {

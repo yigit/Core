@@ -273,7 +273,6 @@ class PipelineStoreTest(
                     origin = Fetcher
                 )
             )
-
         pipeline.stream(StoreRequest.cached(3, refresh = true))
             .assertItems(
                 Data(

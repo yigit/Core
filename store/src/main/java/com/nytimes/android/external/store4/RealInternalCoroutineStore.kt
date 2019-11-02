@@ -235,16 +235,12 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
             writer: suspend (Key, Input) -> Unit,
             delete: (suspend (Key) -> Unit)? = null
         ): Builder<Key, Input, Output> {
-            val flowingPersister = SimplePersisterAsFlowable(
-                reader = reader,
-                writer = writer,
-                delete = delete
+            sourceOfTruth = PersistentNonFlowingSourceOfTruth(
+                realReader = reader,
+                realWriter = writer,
+                realDelete = delete
             )
-            return persister(
-                reader = flowingPersister::flowReader,
-                writer = flowingPersister::flowWriter,
-                delete = flowingPersister::flowDelete
-            )
+            return this
         }
 
         fun persister(

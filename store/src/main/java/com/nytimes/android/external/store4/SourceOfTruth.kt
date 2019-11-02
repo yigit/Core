@@ -66,3 +66,23 @@ internal class PersistentSourceOfTruth<Key, Input, Output>(
         throw UnsupportedOperationException("not supported for persistent")
     }
 }
+
+internal class PersistentNonFlowingSourceOfTruth<Key, Input, Output>(
+    private val realReader: suspend (Key) -> Output?,
+    private val realWriter: suspend (Key, Input) -> Unit,
+    private val realDelete: (suspend (Key) -> Unit)? = null
+) : SourceOfTruth<Key, Input, Output> {
+    override val defaultOrigin = ResponseOrigin.Persister
+    override fun reader(key: Key): Flow<Output?> = flow {
+        emit(realReader(key))
+    }
+    override suspend fun write(key: Key, value: Input) = realWriter(key, value)
+    override suspend fun delete(key: Key) {
+        realDelete?.invoke(key)
+    }
+
+    // for testing
+    override suspend fun getSize(): Int {
+        throw UnsupportedOperationException("not supported for persistent")
+    }
+}
