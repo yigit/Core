@@ -4,13 +4,16 @@ import com.nytimes.android.external.store3.pipeline.ResponseOrigin
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.channels.BroadcastChannel
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -21,45 +24,83 @@ import kotlin.concurrent.withLock
 internal class SourceOfTruthWithBarrier<Key, Input, Output>(
     private val delegate: SourceOfTruth<Key, Input, Output>
 ) {
-    // TODO need to clean these up
-    private val barriers = mutableMapOf<Key, ConflatedBroadcastChannel<BarrierMsg>>()
+    /**
+     * Each key has a barrier so that we can block reads while writing.
+     */
+    private val barriers = mutableMapOf<Key, Barrier>()
+    /**
+     * One lock for all barrier related operations.
+     */
     private val barrierLock = ReentrantLock()
+    /**
+     * Each message gets dispatched with a version. This ensures we won't accidentally turn on the
+     * reader flow for a new reader that happens to have arrived while a write is in progress since
+     * that write should be considered as a disk read for that flow, not fetcher.
+     */
     private val versionCounter = AtomicLong(0)
 
-    private fun getBarrier(key: Key) = barrierLock.withLock {
+    private fun acquireBarrier(key: Key) = barrierLock.withLock {
         barriers.getOrPut(key) {
-            ConflatedBroadcastChannel(BarrierMsg.Open.INITIAL)
+            Barrier().also {
+                it.acquire()
+            }
+        }
+    }
+
+    private fun releaseBarrier(key: Key, barrier: Barrier) = barrierLock.withLock {
+        val existing = barriers[key]
+        check(existing === barrier) {
+            "inconsistent state, a barrier has leaked"
+        }
+        barrier.release()
+        if (!barrier.isUsed()) {
+            barriers.remove(key)
         }
     }
 
     fun reader(key: Key, lock: CompletableDeferred<Unit>): Flow<DataWithOrigin<Output>> {
-        val barrier = getBarrier(key)
-        var version: Long = INITIAL_VERSION
-        return barrier.asFlow()
-            .onStart {
-                version = versionCounter.incrementAndGet()
-                lock.await()
-            }.flatMapLatest {
-                val messageArrivedAfterMe = version < it.version
-                when (it) {
-                    is BarrierMsg.Open -> delegate.reader(key).mapIndexed { index, output ->
-                        if (index == 0 && messageArrivedAfterMe) {
-                            DataWithOrigin<Output>(origin = ResponseOrigin.Fetcher, value = output)
-                        } else {
-                            DataWithOrigin<Output>(origin = delegate.defaultOrigin, value = output)
+        return flow {
+            val barrier = acquireBarrier(key)
+            var version: Long = INITIAL_VERSION
+            try {
+                emitAll(barrier.asFlow()
+                    .onStart {
+                        version = versionCounter.incrementAndGet()
+                        lock.await()
+                    }.flatMapLatest {
+                        val messageArrivedAfterMe = version < it.version
+                        when (it) {
+                            is BarrierMsg.Open -> delegate.reader(key).mapIndexed { index, output ->
+                                if (index == 0 && messageArrivedAfterMe) {
+                                    DataWithOrigin<Output>(
+                                        origin = ResponseOrigin.Fetcher,
+                                        value = output
+                                    )
+                                } else {
+                                    DataWithOrigin<Output>(
+                                        origin = delegate.defaultOrigin,
+                                        value = output
+                                    )
+                                }
+                            }
+                            is BarrierMsg.Blocked -> {
+                                flowOf()
+                            }
                         }
-                    }
-                    is BarrierMsg.Blocked -> {
-                        flowOf()
-                    }
-                }
+                    })
+            } finally {
+                // we are using a finally here instead of onCompletion as there might be a
+                // possibility where flow gets cancelled right before `emitAll`.
+                releaseBarrier(key, barrier)
             }
+
+        }
     }
 
     suspend fun write(key: Key, value: Input) {
-        getBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet()))
+        acquireBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet()))
         delegate.write(key, value)
-        getBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
+        acquireBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
     }
 
     suspend fun delete(key: Key) {
@@ -75,6 +116,34 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
                 val INITIAL = Open(INITIAL_VERSION)
             }
         }
+    }
+
+    // visible for testing
+    internal fun barrierCount() = barrierLock.withLock {
+        barriers.size
+    }
+
+    private class Barrier(
+        private var usageCount: Int = 0,
+        private val channel: BroadcastChannel<BarrierMsg> =
+            ConflatedBroadcastChannel(BarrierMsg.Open.INITIAL)
+    ) {
+        suspend fun send(msg: BarrierMsg) {
+            channel.send(msg)
+        }
+
+        fun asFlow() = channel.asFlow()
+        // must call with barrier lock
+        fun acquire() {
+            usageCount++
+        }
+
+        // must call with barrier lock
+        fun release() {
+            usageCount--
+        }
+
+        fun isUsed() = usageCount > 0
     }
 
     companion object {

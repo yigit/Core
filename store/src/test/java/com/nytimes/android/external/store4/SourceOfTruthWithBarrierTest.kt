@@ -13,14 +13,12 @@ import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
-import org.junit.runners.Parameterized
 
 @FlowPreview
 @ExperimentalCoroutinesApi
-class SourceOfTruthWithBarrierTest(
-) {
+class SourceOfTruthWithBarrierTest {
     private val testScope = TestCoroutineScope()
-    val persister = PipelineStoreTest.InMemoryPersister<Int, String>()
+    private val persister = PipelineStoreTest.InMemoryPersister<Int, String>()
     private val delegate: SourceOfTruth<Int, String, String> =
         PersistentSourceOfTruth(
             realReader = { key ->
@@ -47,6 +45,7 @@ class SourceOfTruthWithBarrierTest(
                 DataWithOrigin(ResponseOrigin.Fetcher, "a")
             )
         )
+        assertThat(source.barrierCount()).isEqualTo(0)
     }
 
     @Test
@@ -62,5 +61,6 @@ class SourceOfTruthWithBarrierTest(
                 DataWithOrigin(ResponseOrigin.Fetcher, "b")
             )
         )
+        assertThat(source.barrierCount()).isEqualTo(0)
     }
 }
