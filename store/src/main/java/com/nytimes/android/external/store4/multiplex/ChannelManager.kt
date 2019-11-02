@@ -1,4 +1,4 @@
-package com.nytimes.android.external.store3.multiplex
+package com.nytimes.android.external.store4.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -13,13 +13,6 @@ import java.util.Collections
  * completed so that the sender can continue for the next item.
  */
 
-// TODO
-//  there is still a bug in here where we might receive other buffered messages after a cleanup.
-//  given that this is in theory non-blocking, we might be able to avoid that by using a rendezvous
-//  channel but not sure if that'll work as desired.
-//  we might also be simply not ack any add channel requests after being cleaned up but what if it
-//  is remove channel and that remove channel happens to arrive after leftovers are carried over.
-//  we need further locking to ensure this won't happen and no one can subscribe nor hold our lock.
 @ExperimentalCoroutinesApi
 class ChannelManager<T>(
     /**

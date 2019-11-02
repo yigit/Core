@@ -1,7 +1,7 @@
-package com.nytimes.android.external.store3.multiplex
+package com.nytimes.android.external.store4.multiplex
 
-import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.DispatchError
-import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.DispatchValue
+import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.DispatchError
+import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.DispatchValue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi

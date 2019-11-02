@@ -1,8 +1,8 @@
-package com.nytimes.android.external.store3.multiplex
+package com.nytimes.android.external.store4.multiplex
 
-import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.AddChannel
-import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.DispatchValue
-import com.nytimes.android.external.store3.multiplex.ChannelManager.Message.RemoveChannel
+import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.AddChannel
+import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.DispatchValue
+import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.RemoveChannel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
