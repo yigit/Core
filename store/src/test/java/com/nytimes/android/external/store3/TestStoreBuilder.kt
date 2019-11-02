@@ -96,7 +96,7 @@ data class TestStoreBuilder<Key, Output>(
 
         @Suppress("UNCHECKED_CAST")
         fun <Key, Output> from(
-            scope : CoroutineScope,
+            scope: CoroutineScope,
             inflight: Boolean = true,
             cached: Boolean = false,
             cacheMemoryPolicy: MemoryPolicy? = null,
@@ -214,23 +214,8 @@ data class TestStoreBuilder<Key, Output>(
                     }.open()
                 },
                 builRealInternalCoroutineStore = {
-//                    RealInternalCoroutineStore(
-//                        scope = scope,
-//                        fetcher = {key : Key ->
-//                            flow {
-//                                val value = fetcher.fetch(key = key)
-//                                if (fetchParser != null) {
-//                                    emit(fetchParser.apply(key, value))
-//                                } else {
-//                                    emit(value)
-//                                }
-//                            }
-//                        },
-//                        database = SourceOfTruth.fromLegacy(persister, postParser),
-//                        memoryPolicy = cacheMemoryPolicy
-//                    ).asLegacyStore()
                     RealInternalCoroutineStore
-                        .beginWithFlowingFetcher<Key, Output, Output> {key : Key ->
+                        .beginWithFlowingFetcher<Key, Output, Output> { key: Key ->
                             flow {
                                 val value = fetcher.fetch(key = key)
                                 if (fetchParser != null) {
@@ -241,7 +226,13 @@ data class TestStoreBuilder<Key, Output>(
                             }
                         }
                         .scope(scope)
-                        .sourceOfTruth(SourceOfTruth.fromLegacy(persister, postParser))
+                        .let {
+                            if (persister == null) {
+                                it
+                            } else {
+                                it.sourceOfTruth(SourceOfTruth.fromLegacy(persister, postParser))
+                            }
+                        }
                         .let {
                             if (cached) {
                                 it

@@ -2,6 +2,7 @@ package com.nytimes.android.external.store4.multiplex
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +22,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
+@FlowPreview
 @ExperimentalCoroutinesApi
 @RunWith(JUnit4::class)
 class MultiplexTest {

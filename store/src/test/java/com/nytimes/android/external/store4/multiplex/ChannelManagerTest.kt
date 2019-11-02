@@ -27,18 +27,18 @@ class ChannelManagerTest {
     private val scope = TestCoroutineScope()
     private val manager = ChannelManager<String>(
         scope,
-        0,
-        {
-            SharedFlowProducer(
-                scope, src =
-                flow<String> {
-                    suspendCancellableCoroutine<String> {
-                        // never end
-                    }
-                },
-                channelManager = it
-            )
-        })
+        0
+    ) {
+        SharedFlowProducer(
+            scope, src =
+            flow {
+                suspendCancellableCoroutine<String> {
+                    // never end
+                }
+            },
+            channelManager = it
+        )
+    }
 
     @Test
     fun simple() = scope.runBlockingTest {

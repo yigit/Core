@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.collectIndexed
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -39,11 +38,7 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
         return barrier.asFlow()
             .onStart {
                 version = versionCounter.incrementAndGet()
-                delegate.acquire(key)
                 lock.await()
-            }
-            .onCompletion {
-                delegate.release(key)
             }.flatMapLatest {
                 val messageArrivedAfterMe = version < it.version
                 when (it) {
@@ -55,7 +50,6 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
                         }
                     }
                     is BarrierMsg.Blocked -> {
-                        it.ack.complete(Unit)
                         flowOf()
                     }
                 }
@@ -63,11 +57,7 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
     }
 
     suspend fun write(key: Key, value: Input) {
-        // TODO multiple downstream is still broken!
-        //  this acking will work only for one
-        //  also, it will get stuck if downstream closes but then we would close as well
-        val ack = CompletableDeferred<Unit>()
-        getBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet(), ack))
+        getBarrier(key).send(BarrierMsg.Blocked(versionCounter.incrementAndGet()))
         delegate.write(key, value)
         getBarrier(key).send(BarrierMsg.Open(versionCounter.incrementAndGet()))
     }
@@ -79,7 +69,7 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
     private sealed class BarrierMsg(
         val version: Long
     ) {
-        class Blocked(version: Long, val ack: CompletableDeferred<Unit>) : BarrierMsg(version)
+        class Blocked(version: Long) : BarrierMsg(version)
         class Open(version: Long) : BarrierMsg(version) {
             companion object {
                 val INITIAL = Open(INITIAL_VERSION)
@@ -92,6 +82,7 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
     }
 }
 
+@ExperimentalCoroutinesApi
 private inline fun <T, R> Flow<T>.mapIndexed(crossinline block: (Int, T) -> R) = flow {
     this@mapIndexed.collectIndexed { index, value ->
         emit(block(index, value))

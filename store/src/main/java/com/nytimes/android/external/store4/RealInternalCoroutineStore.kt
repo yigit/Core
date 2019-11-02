@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.transform
@@ -30,10 +29,20 @@ import kotlinx.coroutines.flow.withIndex
 internal class RealInternalCoroutineStore<Key, Input, Output>(
     private val scope: CoroutineScope,
     private val fetcher: (Key) -> Flow<Input>,
-    database: SourceOfTruth<Key, Input, Output>,
+    sourceOfTruth: SourceOfTruth<Key, Input, Output>? = null,
     private val memoryPolicy: MemoryPolicy?
 ) : PipelineStore<Key, Output> {
-    private val sourceOfTruth = SourceOfTruthWithBarrier(database)
+    /**
+     * This source of truth is either a real database or an in memory source of truth created by
+     * the builder.
+     * Whatever is given, we always put a [SourceOfTruthWithBarrier] in front of it so that while
+     * we write the value from fetcher into the disk, we can block reads to avoid sending new data
+     * as if it came from the server (the [StoreResponse.origin] field).
+     */
+    private val sourceOfTruth: SourceOfTruthWithBarrier<Key, Input, Output>? =
+        sourceOfTruth?.let {
+            SourceOfTruthWithBarrier(it)
+        }
     private val memCache = memoryPolicy?.let {
         StoreCache.fromRequest<Key, Output?, StoreRequest<Key>>(
             loader = {
@@ -47,22 +56,34 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
             memoryPolicy = memoryPolicy
         )
     }
+    /**
+     * Fetcher controller maintains 1 and only 1 `Multiplexer` for a given key to ensure network
+     * requests are shared.
+     */
     private val fetcherController = FetcherController(
         scope = scope,
         realFetcher = fetcher,
-        sourceOfTruth = sourceOfTruth
+        sourceOfTruth = this.sourceOfTruth
     )
 
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
-        return diskNetworkCombined(request)
-            .onEach {
-                if (it.origin != ResponseOrigin.Cache) {
-                    it.dataOrNull()?.let { data ->
-                        memCache?.put(request.key, data)
-                    }
+        return if (sourceOfTruth == null) {
+            createNetworkFlow(
+                request = request,
+                networkLock = null
+            )
+        } else {
+            diskNetworkCombined(request)
+        }.onEach {
+            // whenever a value is dispatched, save it to the memory cache
+            if (it.origin != ResponseOrigin.Cache) {
+                it.dataOrNull()?.let { data ->
+                    memCache?.put(request.key, data)
                 }
             }
+        }
             .onStart {
+                // if there is anything cached, dispatch it first if requested
                 if (!request.shouldSkipCache(CacheType.MEMORY)) {
                     memCache?.getIfPresent(request.key)?.let { cached ->
                         emit(StoreResponse.Data(value = cached, origin = ResponseOrigin.Cache))
@@ -73,31 +94,84 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
 
     override suspend fun clear(key: Key) {
         memCache?.invalidate(key)
-        sourceOfTruth.delete(key)
+        sourceOfTruth?.delete(key)
     }
 
     /**
      * We want to stream from disk but also want to refresh. If requested or necessary.
      *
-     * To do that, we need to see the first disk value and then decide to fetch or not.
-     * in any case, we always return the Flow from reader.
-     *
      * How it works:
-     * We start by reading the disk. If first response from disk is `null` OR `request.refresh`
-     * is set to `true`, we start fetcher flow.
+     * There are two flows:
+     * Fetcher: The flow we get for the fetching
+     * Disk: The flow we get from the [SourceOfTruth].
+     * Both flows are controlled by a lock for each so that we can start the right one based on
+     * the request status or values we receive.
      *
-     * When fetcher emits data, if it is [StoreResponse.Error] or [StoreResponse.Loading], it
-     * directly goes to the downstream.
-     * If it is [StoreResponse.Data], we first stop the disk flow, write the new data to disk and
-     * restart the disk flow. On restart, disk-flow sets the first emissions `origin` to the
-     * `origin` set by the fetcher. subsequent reads use origin [ResponseOrigin.Persister].
+     * Value is always returned from [SourceOfTruth] while the errors are dispatched from both the
+     * `Fetcher` and [SourceOfTruth].
+     *
+     * There are two initialization paths:
+     *
+     * 1) Request wants to skip disk cache:
+     * In this case, we first start the fetcher flow. When fetcher flow provides something besides
+     * an error, we enable the disk flow.
+     *
+     * 2) Request does not want to skip disk cache:
+     * In this case, we first start the disk flow. If disk flow returns `null` or
+     * [StoreRequest.refresh] is set to `true`, we enable the fetcher flow.
+     * This ensures we first get the value from disk and then load from server if necessary.
      */
     private fun diskNetworkCombined(
         request: StoreRequest<Key>
     ): Flow<StoreResponse<Output>> {
         val diskLock = CompletableDeferred<Unit>()
         val networkLock = CompletableDeferred<Unit>()
-        val networkFlow = fetcherController
+        val networkFlow = createNetworkFlow(request, networkLock)
+        if (!request.shouldSkipCache(CacheType.DISK)) {
+            diskLock.complete(Unit)
+        }
+        val diskFlow = sourceOfTruth!!.reader(request.key, diskLock)
+        // we use a merge implementation that gives the source of the flow so that we can decide
+        // based on that.
+        return networkFlow.merge(diskFlow.withIndex())
+            .transform {
+                // left is Fetcher while right is source of truth
+                if (it is Either.Left) {
+                    if (it.value !is StoreResponse.Data<*>) {
+                        emit(it.value.swapType())
+                    }
+                    // network sent something
+                    if (it.value is StoreResponse.Data<*>) {
+                        // unlocking disk only if network sent data so that fresh data request never
+                        // receives disk data by mistake
+                        diskLock.complete(Unit)
+                    }
+                } else if (it is Either.Right) {
+                    // right, that is data from disk
+                    val (index, diskData) = it.value
+                    if (diskData.value != null) {
+                        emit(
+                            StoreResponse.Data(
+                                value = diskData.value,
+                                origin = diskData.origin
+                            ) as StoreResponse<Output>
+                        )
+                    }
+
+                    // if this is the first disk value and it is null, we should enable fetcher
+                    // TODO should we ignore the index and always enable?
+                    if (index == 0 && (diskData.value == null || request.refresh)) {
+                        networkLock.complete(Unit)
+                    }
+                }
+            }
+    }
+
+    private fun createNetworkFlow(
+        request: StoreRequest<Key>,
+        networkLock: CompletableDeferred<Unit>?
+    ): Flow<StoreResponse<Output>> {
+        return fetcherController
             .getFetcher(request.key)
             .map {
                 StoreResponse.Data(
@@ -115,61 +189,16 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
             .onStart {
                 if (!request.shouldSkipCache(CacheType.DISK)) {
                     // wait until network gives us the go
-                    networkLock.await()
+                    networkLock?.await()
                 }
                 emit(
                     StoreResponse.Loading(
                         origin = ResponseOrigin.Fetcher
                     )
                 )
+            }.map {
+                it.swapType<Output>()
             }
-        if (!request.shouldSkipCache(CacheType.DISK)) {
-            diskLock.complete(Unit)
-        }
-        val diskFlow = sourceOfTruth.reader(request.key, diskLock)
-        // track this to avoid dispatching same local data due to network events
-        return networkFlow.merge(diskFlow.withIndex())
-            .transform {
-            if (it is Either.Left) {
-                if (it.value !is StoreResponse.Data<*>) {
-                    emit(it.value.swapType())
-                }
-                // network sent something
-                if (it.value is StoreResponse.Data<*>) {
-                    // unlocking disk only if network sent data so that fresh data request never
-                    // receives disk data by mistake
-                    diskLock.complete(Unit)
-                }
-
-            } else if (it is Either.Right) {
-                // right, that is data from disk
-                val (index, diskData) = it.value
-                if (diskData.value != null) {
-                    emit(
-                        StoreResponse.Data(
-                            value = diskData.value,
-                            origin = diskData.origin
-                        ) as StoreResponse<Output>
-                    )
-                }
-
-                if (index == 0 && (diskData.value == null || request.refresh)) {
-                    networkLock.complete(Unit)
-                }
-            }
-        }.onEach {
-                println("emitting $it")
-            }
-    }
-
-    // used to control the disk flow when combined with network
-    internal sealed class DiskCommand {
-        object Read : DiskCommand()
-    }
-
-    // used to control the disk flow when combined with network
-    internal sealed class FetcherCommand {
-        object Fetch : FetcherCommand()
     }
 
     fun asLegacyStore() = open()
@@ -178,38 +207,26 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
     companion object {
         fun <Key, Input, Output> beginWithNonFlowingFetcher(
             fetcher: suspend (key: Key) -> Input
-        ) = Builder<Key, Input, Output>().nonFlowingFetcher(fetcher)
+        ) = Builder<Key, Input, Output> { key: Key ->
+            flow {
+                emit(fetcher(key))
+            }
+        }
 
         fun <Key, Input, Output> beginWithFlowingFetcher(
             fetcher: (key: Key) -> Flow<Input>
-        ) = Builder<Key, Input, Output>().fetcher(fetcher)
+        ) = Builder<Key, Input, Output>(fetcher)
     }
 
-    class Builder<Key, Input, Output> {
-        private lateinit var _fetcher: (key: Key) -> Flow<Input>
-        private var _scope: CoroutineScope? = null
-        private var _sourceOfTruth: SourceOfTruth<Key, Input, Output>? = null
-        private var _cachePolicy: MemoryPolicy? = StoreDefaults.memoryPolicy
-        fun nonFlowingFetcher(
-            fetcher: suspend (key: Key) -> Input
-        ): Builder<Key, Input, Output> {
-            _fetcher = { key: Key ->
-                flow {
-                    emit(fetcher(key))
-                }
-            }
-            return this
-        }
-
-        fun fetcher(
-            fetcher: (key: Key) -> Flow<Input>
-        ): Builder<Key, Input, Output> {
-            _fetcher = fetcher
-            return this
-        }
+    class Builder<Key, Input, Output>(
+        private val fetcher: (key: Key) -> Flow<Input>
+    ) {
+        private var scope: CoroutineScope? = null
+        private var sourceOfTruth: SourceOfTruth<Key, Input, Output>? = null
+        private var cachePolicy: MemoryPolicy? = StoreDefaults.memoryPolicy
 
         fun scope(scope: CoroutineScope): Builder<Key, Input, Output> {
-            _scope = scope
+            this.scope = scope
             return this
         }
 
@@ -235,7 +252,7 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
             writer: suspend (Key, Input) -> Unit,
             delete: (suspend (Key) -> Unit)? = null
         ): Builder<Key, Input, Output> {
-            _sourceOfTruth = PersistentSourceOfTruth(
+            sourceOfTruth = PersistentSourceOfTruth(
                 realReader = reader,
                 realWriter = writer,
                 realDelete = delete
@@ -246,31 +263,27 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
         fun sourceOfTruth(
             sourceOfTruth: SourceOfTruth<Key, Input, Output>
         ): Builder<Key, Input, Output> {
-            _sourceOfTruth = sourceOfTruth
+            this.sourceOfTruth = sourceOfTruth
             return this
         }
 
         fun cachePolicy(memoryPolicy: MemoryPolicy?): Builder<Key, Input, Output> {
-            _cachePolicy = memoryPolicy
+            cachePolicy = memoryPolicy
             return this
         }
 
         fun disableCache(): Builder<Key, Input, Output> {
-            _cachePolicy = null
+            cachePolicy = null
             return this
         }
 
         fun build(): RealInternalCoroutineStore<Key, Input, Output> {
-            check(::_fetcher.isInitialized) {
-                "must provide a fetcher"
-            }
             @Suppress("UNCHECKED_CAST")
-            return RealInternalCoroutineStore<Key, Input, Output>(
-                scope = _scope ?: GlobalScope,
-                database = _sourceOfTruth
-                    ?: InMemorySourceOfTruth<Key, Output>() as SourceOfTruth<Key, Input, Output>,
-                fetcher = _fetcher,
-                memoryPolicy = _cachePolicy
+            return RealInternalCoroutineStore(
+                scope = scope ?: GlobalScope,
+                sourceOfTruth = sourceOfTruth,
+                fetcher = fetcher,
+                memoryPolicy = cachePolicy
             )
         }
     }

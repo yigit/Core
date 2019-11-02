@@ -81,8 +81,6 @@ internal class KeyTracker<Key> {
             }
             try {
                 emitAll(keyChannel.channel.asFlow())
-            } catch (th:Throwable){
-                println("key tracker error $th")
             } finally {
                 lock.withLock {
                     keyChannel.release()
