@@ -23,6 +23,7 @@ class ChannelManager<T>(
      * The buffer size that is used while the upstream is active
      */
     bufferSize: Int,
+    private val onEach: suspend (T) -> Unit,
     /**
      * Called when the channel manager is active (e.g. it has downstream collectors and needs a
      * producer)
@@ -89,6 +90,7 @@ class ChannelManager<T>(
      * Dispatch value to all downstream collectors.
      */
     private suspend fun doDispatchValue(msg: Message.DispatchValue<T>) {
+        onEach(msg.value)
         buffer.add(msg)
         dispatchedValue = true
         channels.forEach {

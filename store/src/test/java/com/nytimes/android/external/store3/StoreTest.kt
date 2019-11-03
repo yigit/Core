@@ -62,7 +62,6 @@ class StoreTest(
         value = simpleStore.get(barCode)
         assertThat(value).isEqualTo(DISK)
         verify(fetcher, times(1)).fetch(barCode)
-        println("ALL DONE")
     }
 
     @Test

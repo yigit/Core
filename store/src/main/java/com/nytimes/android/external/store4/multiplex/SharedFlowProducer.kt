@@ -2,15 +2,18 @@ package com.nytimes.android.external.store4.multiplex
 
 import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.DispatchError
 import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.DispatchValue
+import com.nytimes.android.external.store4.multiplex.ChannelManager.Message.UpstreamFinished
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.nio.channels.ClosedChannelException
 
 /**
  * A flow collector that works with a [ChannelManager] to collect values from an upstream flow
@@ -38,22 +41,26 @@ class SharedFlowProducer<T>(
             try {
                 // launch again to track the collection job
                 collectionJob = scope.launch {
-                    src.catch {
-                        channelManager.send(
-                            DispatchError(
-                                it
+                    try {
+                        src.catch {
+                            channelManager.send(
+                                DispatchError(
+                                    it
+                                )
                             )
-                        )
-                    }.collect {
-                        val ack = CompletableDeferred<Unit>()
-                        channelManager.send(
-                            DispatchValue(
-                                it,
-                                ack
+                        }.collect {
+                            val ack = CompletableDeferred<Unit>()
+                            channelManager.send(
+                                DispatchValue(
+                                    it,
+                                    ack
+                                )
                             )
-                        )
-                        // suspend until at least 1 receives the new value
-                        ack.await()
+                            // suspend until at least 1 receives the new value
+                            ack.await()
+                        }
+                    } catch (closed: ClosedSendChannelException) {
+                        // ignore. if consumers are gone, it might close itself.
                     }
                 }
                 // wait until collection ends, either due to an error or ordered by the channel
@@ -62,7 +69,11 @@ class SharedFlowProducer<T>(
             } finally {
                 // cleanup the channel manager so that downstreams can be closed if they are not
                 // closed already and leftovers can be moved to a new collector if necessary.
-                channelManager.send(ChannelManager.Message.UpstreamFinished(this@SharedFlowProducer))
+                try {
+                    channelManager.send(UpstreamFinished(this@SharedFlowProducer))
+                } catch (closed : ClosedSendChannelException) {
+                    // it might close before us, its fine.
+                }
             }
         }
     }

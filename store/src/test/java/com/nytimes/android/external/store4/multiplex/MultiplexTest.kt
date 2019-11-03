@@ -29,7 +29,7 @@ class MultiplexTest {
     private val testScope = TestCoroutineScope()
 
     fun <T> createMultiplexer(f: () -> Flow<T>): Multiplexer<T> {
-        return Multiplexer(testScope, 0, f)
+        return Multiplexer(testScope, 0, f, {})
     }
 
     @Test
@@ -59,13 +59,11 @@ class MultiplexTest {
         }
         val c1 = async {
             activeFlow.create().onEach {
-                println("received[1] $it")
                 delay(100)
             }.toList()
         }
         val c2 = async {
             activeFlow.create().onEach {
-                println("received[2] $it")
                 delay(200)
             }.toList()
         }
@@ -143,7 +141,6 @@ class MultiplexTest {
         val lists = listOf(c1, c2, c3).map {
             it.await()
         }
-        println("lists: $lists")
         assertThat(lists[0]).isEqualTo(listOf("a_0", "b_0"))
         assertThat(lists[1]).isEqualTo(listOf("b_0"))
         assertThat(lists[2]).isEqualTo(listOf("a_1", "b_1"))
@@ -272,7 +269,8 @@ class MultiplexTest {
                     // dont finish to see the buffer behavior
                     delay(2000)
                 }
-            }
+            },
+            onEach = {}
         )
         val c1 = async {
             activeFlow.create().toList()

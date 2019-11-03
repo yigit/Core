@@ -5,9 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.onEach
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 
 /**
  * This class maintains one and only 1 fetcher for a given [Key].
@@ -19,24 +18,35 @@ internal class FetcherController<Key, Input, Output>(
     private val realFetcher: (Key) -> Flow<Input>,
     private val sourceOfTruth: SourceOfTruthWithBarrier<Key, Input, Output>?
 ) {
-    private val fetchers = mutableMapOf<Key, Multiplexer<Input>>()
-    private val multiplexerLock = ReentrantLock()
+    private val fetchers = RefCountedResource(
+        create = { key: Key ->
+            Multiplexer(
+                scope = scope,
+                bufferSize = 0,
+                source = {
+                    realFetcher(key)
+                },
+                onEach = {
+                    sourceOfTruth?.write(key, it)
+                }
+            )
+        },
+        onRelease = { key: Key, multiplexer: Multiplexer<Input> ->
+            multiplexer.close()
+        }
+    )
+
     fun getFetcher(key: Key): Flow<Input> {
-        val multiplexer = multiplexerLock.withLock {
-            fetchers.getOrPut(key) {
-                // TODO
-                //  we need cleanup here
-                Multiplexer(
-                    scope = scope,
-                    bufferSize = 0,
-                    source = {
-                        realFetcher(key).onEach {
-                            sourceOfTruth?.write(key, it)
-                        }
-                    }
-                )
+        return flow {
+            val fetcher = fetchers.acquire(key)
+            try {
+                emitAll(fetcher.create())
+            } finally {
+                fetchers.release(key, fetcher)
             }
         }
-        return multiplexer.create()
     }
+
+    // visible for testing
+    internal suspend fun fetcherSize() = fetchers.size()
 }

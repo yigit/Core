@@ -13,13 +13,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
-import kotlinx.coroutines.yield
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -440,8 +438,11 @@ class PipelineStoreTest(
             responses.filter {
                 it.first == key
             }.forEach {
+                // we delay here to avoid collapsing fetcher values, otherwise, there is a
+                // possibility that consumer won't be fast enough to get both values before new
+                // value overrides the previous one.
+                delay(1)
                 emit(it.second)
-                yield() // to avoid collapsing values for the tests
             }
         }
     }
@@ -492,7 +493,7 @@ class PipelineStoreTest(
         nonFlowingFetcher: (suspend (Key) -> Input)? = null,
         flowingFetcher: ((Key) -> Flow<Input>)? = null,
         persisterReader: (suspend (Key) -> Output?)? = null,
-        flowingPersisterReader : ((Key) -> Flow<Output?>)? = null,
+        flowingPersisterReader: ((Key) -> Flow<Output?>)? = null,
         persisterWriter: (suspend (Key, Input) -> Unit)? = null,
         persisterDelete: (suspend (Key) -> Unit)? = null,
         enableCache: Boolean
@@ -534,9 +535,13 @@ class PipelineStoreTest(
             }
         } else if (storeType == TestStoreType.CoroutineInternal) {
             return if (nonFlowingFetcher != null) {
-                RealInternalCoroutineStore.beginWithNonFlowingFetcher<Key, Input, Output>(nonFlowingFetcher)
+                RealInternalCoroutineStore.beginWithNonFlowingFetcher<Key, Input, Output>(
+                    nonFlowingFetcher
+                )
             } else {
-                RealInternalCoroutineStore.beginWithFlowingFetcher<Key, Input, Output>(flowingFetcher!!)
+                RealInternalCoroutineStore.beginWithFlowingFetcher<Key, Input, Output>(
+                    flowingFetcher!!
+                )
             }.let {
                 when {
                     flowingPersisterReader != null -> it.persister(

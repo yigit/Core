@@ -27,7 +27,8 @@ class ChannelManagerTest {
     private val scope = TestCoroutineScope()
     private val manager = ChannelManager<String>(
         scope,
-        0
+        0,
+        onEach = {}
     ) {
         SharedFlowProducer(
             scope, src =

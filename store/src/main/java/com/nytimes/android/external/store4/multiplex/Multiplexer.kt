@@ -27,7 +27,11 @@ class Multiplexer<T>(
      */
     // TODO does this have to be a method or just a flow ? Will decide when actual implementation
     //  happens
-    private val source: () -> Flow<T>
+    private val source: () -> Flow<T>,
+    /**
+     * Called when upstream dispatches a value.
+     */
+    private val onEach: suspend (T) -> Unit
 ) {
 
     private val channelManager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -40,7 +44,8 @@ class Multiplexer<T>(
                     src = source(),
                     channelManager = it
                 )
-            }
+            },
+            onEach = onEach
         )
     }
 
@@ -63,5 +68,9 @@ class Multiplexer<T>(
                     )
                 )
             }
+    }
+
+    fun close() {
+        channelManager.close()
     }
 }

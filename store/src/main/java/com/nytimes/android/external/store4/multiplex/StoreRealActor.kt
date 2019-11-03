@@ -31,4 +31,8 @@ abstract class StoreRealActor<T>(
         Dispatchers.Main.immediate
         inboundChannel.send(msg)
     }
+
+    fun close() {
+        inboundChannel.close()
+    }
 }

@@ -185,8 +185,7 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
                         origin = ResponseOrigin.Fetcher
                     )
                 )
-            }
-            .onStart {
+            }.onStart {
                 if (!request.shouldSkipCache(CacheType.DISK)) {
                     // wait until network gives us the go
                     networkLock?.await()
