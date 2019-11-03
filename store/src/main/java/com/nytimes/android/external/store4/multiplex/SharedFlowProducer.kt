@@ -68,7 +68,7 @@ class SharedFlowProducer<T>(
                 collectionJob.join()
             } finally {
                 // cleanup the channel manager so that downstreams can be closed if they are not
-                // closed already and leftovers can be moved to a new collector if necessary.
+                // closed already and leftovers can be moved to a new producer if necessary.
                 try {
                     channelManager.send(UpstreamFinished(this@SharedFlowProducer))
                 } catch (closed : ClosedSendChannelException) {
@@ -80,5 +80,9 @@ class SharedFlowProducer<T>(
 
     suspend fun cancelAndJoin() {
         collectionJob.cancelAndJoin()
+    }
+
+    fun cancel() {
+        collectionJob.cancel()
     }
 }

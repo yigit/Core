@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import java.util.concurrent.atomic.AtomicLong
 
+/**
+ * Wraps a [SourceOfTruth] and blocks reads while a write is in progress.
+ */
 @FlowPreview
 @ExperimentalCoroutinesApi
 internal class SourceOfTruthWithBarrier<Key, Input, Output>(
@@ -81,7 +84,6 @@ internal class SourceOfTruthWithBarrier<Key, Input, Output>(
         } finally {
             barriers.release(key, barrier)
         }
-
     }
 
     suspend fun delete(key: Key) {

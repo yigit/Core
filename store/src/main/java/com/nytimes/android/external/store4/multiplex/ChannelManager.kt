@@ -12,7 +12,6 @@ import java.util.Collections
  * in parallel. As soon as one of them receives the value, the ack in the dispatch message is
  * completed so that the sender can continue for the next item.
  */
-
 @ExperimentalCoroutinesApi
 class ChannelManager<T>(
     /**
@@ -62,7 +61,7 @@ class ChannelManager<T>(
      * We are closing. Do a cleanup on existing channels where we'll close them and also decide
      * on the list of leftovers.
      */
-    suspend fun doHandleUpstreamClose(producer: SharedFlowProducer<T>?) {
+    fun doHandleUpstreamClose(producer: SharedFlowProducer<T>?) {
         if (this.producer !== producer) {
             return
         }
@@ -84,6 +83,10 @@ class ChannelManager<T>(
         if (leftovers.isNotEmpty()) {
             activateIfNecessary(true)
         }
+    }
+
+    override fun onClosed() {
+        producer?.cancel()
     }
 
     /**

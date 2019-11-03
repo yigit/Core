@@ -10,9 +10,14 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.transform
 
+/**
+ * Like a publish, shares 1 upstream value with multiple downstream receiver.
+ * It has one store specific behavior where upstream flow is suspended until at least 1 downstream
+ * flow emits the value to ensure we don't abuse the upstream flow of downstream cannot keep up.
+ */
 @FlowPreview
 @ExperimentalCoroutinesApi
-class Multiplexer<T>(
+internal class Multiplexer<T>(
     /**
      * The [CoroutineScope] to use for upstream subscription
      */

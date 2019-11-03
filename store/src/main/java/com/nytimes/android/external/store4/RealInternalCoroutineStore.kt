@@ -6,7 +6,6 @@ import com.nytimes.android.external.store3.base.impl.StoreDefaults
 import com.nytimes.android.external.store3.pipeline.CacheType
 import com.nytimes.android.external.store3.pipeline.PipelineStore
 import com.nytimes.android.external.store3.pipeline.ResponseOrigin
-import com.nytimes.android.external.store3.pipeline.SimplePersisterAsFlowable
 import com.nytimes.android.external.store3.pipeline.StoreRequest
 import com.nytimes.android.external.store3.pipeline.StoreResponse
 import com.nytimes.android.external.store3.pipeline.open
@@ -81,15 +80,14 @@ internal class RealInternalCoroutineStore<Key, Input, Output>(
                     memCache?.put(request.key, data)
                 }
             }
-        }
-            .onStart {
-                // if there is anything cached, dispatch it first if requested
-                if (!request.shouldSkipCache(CacheType.MEMORY)) {
-                    memCache?.getIfPresent(request.key)?.let { cached ->
-                        emit(StoreResponse.Data(value = cached, origin = ResponseOrigin.Cache))
-                    }
+        }.onStart {
+            // if there is anything cached, dispatch it first if requested
+            if (!request.shouldSkipCache(CacheType.MEMORY)) {
+                memCache?.getIfPresent(request.key)?.let { cached ->
+                    emit(StoreResponse.Data(value = cached, origin = ResponseOrigin.Cache))
                 }
             }
+        }
     }
 
     override suspend fun clear(key: Key) {

@@ -28,7 +28,7 @@ import org.junit.runners.JUnit4
 class MultiplexTest {
     private val testScope = TestCoroutineScope()
 
-    fun <T> createMultiplexer(f: () -> Flow<T>): Multiplexer<T> {
+    private fun <T> createMultiplexer(f: () -> Flow<T>): Multiplexer<T> {
         return Multiplexer(testScope, 0, f, {})
     }
 

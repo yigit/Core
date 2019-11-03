@@ -8,8 +8,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
- * Source of truth takes care of dispatching values from 1 source and also block reads when a value
- * is being written so that we never dispatch a value from fetcher as if it came from disk.
+ * Source of truth takes care of making any source (no matter if it has flowing reads or not) into
+ * a common flowing API. Used w/ a [SourceOfTruthWithBarrier] in front of it in the
+ * [RealInternalCoroutineStore] implementation to avoid dispatching values to downstream while
+ * a write is in progress.
  */
 internal interface SourceOfTruth<Key, Input, Output> {
     val defaultOrigin: ResponseOrigin
