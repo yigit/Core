@@ -1,15 +1,25 @@
 package com.nytimes.android.external.store3.pipeline
 
 import com.nytimes.android.external.store3.TestStoreType
-import com.nytimes.android.external.store4.*
+import com.nytimes.android.external.store4.FlowStoreBuilder
+import com.nytimes.android.external.store4.ResponseOrigin
 import com.nytimes.android.external.store4.ResponseOrigin.Cache
 import com.nytimes.android.external.store4.ResponseOrigin.Fetcher
+import com.nytimes.android.external.store4.Store
+import com.nytimes.android.external.store4.StoreRequest
+import com.nytimes.android.external.store4.StoreResponse
 import com.nytimes.android.external.store4.StoreResponse.Data
 import com.nytimes.android.external.store4.StoreResponse.Loading
 import com.nytimes.android.external.store4.impl.SimplePersisterAsFlowable
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestCoroutineScope
 import kotlinx.coroutines.test.runBlockingTest
@@ -17,6 +27,12 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
+import kotlin.collections.filter
+import kotlin.collections.forEach
+import kotlin.collections.listOf
+import kotlin.collections.mutableMapOf
+import kotlin.collections.set
+import kotlin.collections.toList
 
 @ExperimentalCoroutinesApi
 @RunWith(Parameterized::class)
@@ -410,6 +426,55 @@ class FlowStoreTest(
             )
     }
 
+    @Test
+    fun streamWithoutPersister_cached_nonFlowingFetcher() = testScope.runBlockingTest {
+        streamWithoutPersister_nonFlowingFetcher(enableCache = true)
+    }
+
+    @Test
+    fun streamWithoutPersister_notCached_nonFlowingFetcher() = testScope.runBlockingTest {
+        streamWithoutPersister_nonFlowingFetcher(enableCache = false)
+    }
+
+    fun streamWithoutPersister_nonFlowingFetcher(enableCache:Boolean) = testScope.runBlockingTest {
+        val fetcher = FakeFetcher(
+            3 to "three-1",
+            3 to "three-2"
+        )
+        val pipeline = build<Int, String, String>(
+            nonFlowingFetcher = fetcher::fetch,
+            enableCache = enableCache
+        )
+        val twoItemsNoRefresh = async {
+            pipeline.stream(
+                StoreRequest.cached(3, refresh = false)
+            ).take(3).toList()
+        }
+        delay(1_000) // make sure the async block starts first
+        pipeline.stream(StoreRequest.fresh(3)).assertItems(
+            Loading(
+                origin = Fetcher
+            ),
+            Data(
+                value = "three-2",
+                origin = Fetcher
+            )
+        )
+        assertThat(twoItemsNoRefresh.await()).containsExactly(
+            Loading(
+                origin = Fetcher
+            ),
+            Data(
+                value = "three-1",
+                origin = Fetcher
+            ),
+            Data(
+                value = "three-2",
+                origin = Fetcher
+            )
+        )
+    }
+
     suspend fun Store<Int, String>.get(request: StoreRequest<Int>) =
         this.stream(request).filter { it.dataOrNull() != null }.first()
 
@@ -469,8 +534,8 @@ class FlowStoreTest(
         }
 
         suspend fun asObservable() = SimplePersisterAsFlowable(
-                reader = this::read,
-                writer = this::write
+            reader = this::read,
+            writer = this::write
         )
     }
 
@@ -503,36 +568,36 @@ class FlowStoreTest(
             "need 0 or 1 persister"
         }
 
-            return if (nonFlowingFetcher != null) {
-                FlowStoreBuilder.fromNonFlow(
-                    nonFlowingFetcher
+        return if (nonFlowingFetcher != null) {
+            FlowStoreBuilder.fromNonFlow(
+                nonFlowingFetcher
+            )
+        } else {
+            FlowStoreBuilder.from<Key, Input, Output>(
+                flowingFetcher!!
+            )
+        }.let {
+            when {
+                flowingPersisterReader != null -> it.persister(
+                    reader = flowingPersisterReader,
+                    writer = persisterWriter!!,
+                    delete = persisterDelete
                 )
+                persisterReader != null -> it.nonFlowingPersister(
+                    reader = persisterReader,
+                    writer = persisterWriter!!,
+                    delete = persisterDelete
+                )
+                else -> it
+            }
+        }.let {
+            if (enableCache) {
+                it
             } else {
-                FlowStoreBuilder.from<Key, Input, Output>(
-                    flowingFetcher!!
-                )
-            }.let {
-                when {
-                    flowingPersisterReader != null -> it.persister(
-                        reader = flowingPersisterReader,
-                        writer = persisterWriter!!,
-                        delete = persisterDelete
-                    )
-                    persisterReader != null -> it.nonFlowingPersister(
-                        reader = persisterReader,
-                        writer = persisterWriter!!,
-                        delete = persisterDelete
-                    )
-                    else -> it
-                }
-            }.let {
-                if (enableCache) {
-                    it
-                } else {
-                    it.disableCache()
-                }
-            }.scope(testScope)
-                .build()
+                it.disableCache()
+            }
+        }.scope(testScope)
+            .build()
 
     }
 
