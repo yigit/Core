@@ -1,12 +1,12 @@
 package com.nytimes.android.external.store4.impl
 
+import com.nytimes.android.external.store4.ResponseOrigin
+import com.nytimes.android.external.store4.StoreResponse
 import com.nytimes.android.external.store4.impl.multiplex.Multiplexer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.*
 
 /**
  * This class maintains one and only 1 fetcher for a given [Key].
@@ -14,29 +14,40 @@ import kotlinx.coroutines.flow.flow
 @FlowPreview
 @ExperimentalCoroutinesApi
 internal class FetcherController<Key, Input, Output>(
-    private val scope: CoroutineScope,
-    private val realFetcher: (Key) -> Flow<Input>,
-    private val sourceOfTruth: SourceOfTruthWithBarrier<Key, Input, Output>?
+        private val scope: CoroutineScope,
+        private val realFetcher: (Key) -> Flow<Input>,
+        private val sourceOfTruth: SourceOfTruthWithBarrier<Key, Input, Output>?,
+        private val enablePiggyback: Boolean = false
 ) {
-    private val fetchers = RefCountedResource(
+    private val fetchers = RefCountedResource<Key, Multiplexer<StoreResponse<Input>>>(
             create = { key: Key ->
                 Multiplexer(
                         scope = scope,
                         bufferSize = 0,
                         source = {
-                            realFetcher(key)
+                            realFetcher(key).map {
+                                StoreResponse.Data(
+                                        it,
+                                        origin = ResponseOrigin.Fetcher
+                                ) as StoreResponse<Input>
+                            }.catch {
+                                emit(StoreResponse.Error(it, origin = ResponseOrigin.Fetcher))
+                            }
                         },
+                        piggybackingDownstream = enablePiggyback,
                         onEach = {
-                            sourceOfTruth?.write(key, it)
+                            it.dataOrNull()?.let {
+                                sourceOfTruth?.write(key, it)
+                            }
                         }
                 )
             },
-            onRelease = { key: Key, multiplexer: Multiplexer<Input> ->
+            onRelease = { key: Key, multiplexer: Multiplexer<StoreResponse<Input>> ->
                 multiplexer.close()
             }
     )
 
-    fun getFetcher(key: Key): Flow<Input> {
+    fun getFetcher(key: Key): Flow<StoreResponse<Input>> {
         return flow {
             val fetcher = fetchers.acquire(key)
             try {
