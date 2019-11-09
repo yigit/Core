@@ -50,8 +50,7 @@ class RealStore<Key, Input, Output>(
     private val fetcherController = FetcherController(
             scope = scope,
             realFetcher = fetcher,
-            sourceOfTruth = this.sourceOfTruth,
-            enablePiggyback = sourceOfTruth == null
+            sourceOfTruth = this.sourceOfTruth
     )
 
     override fun stream(request: StoreRequest<Key>): Flow<StoreResponse<Output>> {
