@@ -39,7 +39,7 @@ class RealStore<Key, Input, Output>(
             sourceOfTruth?.let {
                 SourceOfTruthWithBarrier(it)
             }
-    private val memCache2 = memoryPolicy?.let {
+    private val memCache = memoryPolicy?.let {
         CacheBuilder.newBuilder()
                 .also {
                     if (memoryPolicy.hasAccessPolicy()) {
@@ -53,19 +53,7 @@ class RealStore<Key, Input, Output>(
                     }
                 }.build<Key, Output>()
     }
-//    private val memCache = memoryPolicy?.let {
-//        StoreCache.fromRequest<Key, Output?, StoreRequest<Key>>(
-//                loader = {
-//                    TODO(
-//                            """
-//                    This should've never been called. We don't need this anymore, should remove
-//                    loader after we clean old Store ?
-//                """.trimIndent()
-//                    )
-//                },
-//                memoryPolicy = memoryPolicy
-//        )
-//    }
+
     /**
      * Fetcher controller maintains 1 and only 1 `Multiplexer` for a given key to ensure network
      * requests are shared.
@@ -88,13 +76,13 @@ class RealStore<Key, Input, Output>(
             // whenever a value is dispatched, save it to the memory cache
             if (it.origin != ResponseOrigin.Cache) {
                 it.dataOrNull()?.let { data ->
-                    memCache2?.put(request.key, data)
+                    memCache?.put(request.key, data)
                 }
             }
         }.onStart {
             // if there is anything cached, dispatch it first if requested
             if (!request.shouldSkipCache(CacheType.MEMORY)) {
-                memCache2?.getIfPresent(request.key)?.let { cached ->
+                memCache?.getIfPresent(request.key)?.let { cached ->
                     emit(StoreResponse.Data(value = cached, origin = ResponseOrigin.Cache))
                 }
             }
@@ -102,7 +90,7 @@ class RealStore<Key, Input, Output>(
     }
 
     override suspend fun clear(key: Key) {
-        memCache2?.invalidate(key)
+        memCache?.invalidate(key)
         sourceOfTruth?.delete(key)
     }
 
