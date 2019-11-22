@@ -1,4 +1,4 @@
-package com.nytimes.android.external.store3.pipeline
+package com.nytimes.android.external.store4.impl
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BroadcastChannel
@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * Only used in FlowStoreTest. We should get rid of it eventually.
+ */
 @ExperimentalCoroutinesApi
 class SimplePersisterAsFlowable<Key, Input, Output>(
         private val reader: suspend (Key) -> Output?,
