@@ -1,4 +1,4 @@
-package com.nytimes.android.external.store4.impl
+package com.nytimes.android.external.store3.pipeline
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BroadcastChannel
@@ -67,7 +67,7 @@ internal class KeyTracker<Key> {
         // it is important to allocate KeyChannel lazily (ony when the returned flow is collected
         // from). Otherwise, we might just create many of them that are never observed hence never
         // cleaned up
-        return flow<Unit> {
+        return flow {
             val keyChannel = lock.withLock {
                 channels.getOrPut(key) {
                     KeyChannel(
