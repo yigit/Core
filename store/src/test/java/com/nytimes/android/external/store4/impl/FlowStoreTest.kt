@@ -482,9 +482,16 @@ class FlowStoreTest {
                     nonFlowingFetcher
             )
         } else {
-            FlowStoreBuilder.from<Key, Input, Output>(
+            FlowStoreBuilder.from(
                     flowingFetcher!!
             )
+        }.scope(testScope)
+                .let {
+            if (enableCache) {
+                it
+            } else {
+                it.disableCache()
+            }
         }.let {
             when {
                 flowingPersisterReader != null -> it.persister(
@@ -498,15 +505,8 @@ class FlowStoreTest {
                         delete = persisterDelete
                 )
                 else -> it
-            }
-        }.let {
-            if (enableCache) {
-                it
-            } else {
-                it.disableCache()
-            }
-        }.scope(testScope)
-                .build()
+            } as StoreBuilder<Key, Output>
+        }.build()
 
     }
 }

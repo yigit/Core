@@ -29,7 +29,7 @@ class StreamWithoutSourceOfTruthTest(
                 3 to "three-1",
                 3 to "three-2"
         )
-        val pipeline = FlowStoreBuilder.fromNonFlow<Int, String, String>(fetcher::fetch)
+        val pipeline = FlowStoreBuilder.fromNonFlow(fetcher::fetch)
                 .scope(testScope)
                 .let {
                     if (enableCache) {

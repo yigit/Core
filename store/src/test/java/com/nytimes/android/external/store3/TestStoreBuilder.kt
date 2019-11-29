@@ -66,7 +66,7 @@ data class TestStoreBuilder<Key, Output>(
             return TestStoreBuilder(
                 buildStore = {
                     FlowStoreBuilder
-                        .from <Key, Output, Output> { key: Key ->
+                        .from { key: Key ->
                             flow {
                                 val value = fetcher.invoke(key = key)
                                 if (fetchParser != null) {
@@ -78,20 +78,19 @@ data class TestStoreBuilder<Key, Output>(
                         }
                         .scope(scope)
                         .let {
-                            if (persister == null) {
-                                it
-                            } else {
-                                it.sourceOfTruth(SourceOfTruth.fromLegacy(persister, postParser))
-                            }
-                        }
-                        .let {
                             if (cached) {
                                 cacheMemoryPolicy?.let { cacheMemoryPolicy->  it.cachePolicy(cacheMemoryPolicy) }?:it
                             } else {
                                 it.disableCache()
                             }
                         }
-                        .build()
+                        .let {
+                            if (persister == null) {
+                                it
+                            } else {
+                                it.sourceOfTruth(SourceOfTruth.fromLegacy(persister, postParser))
+                            }
+                        }.build()
                 }
             )
         }
