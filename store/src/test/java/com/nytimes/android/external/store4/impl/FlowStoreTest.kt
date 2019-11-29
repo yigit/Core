@@ -478,11 +478,11 @@ class FlowStoreTest {
         }
 
         return if (nonFlowingFetcher != null) {
-            FlowStoreBuilder.fromNonFlow(
+            StoreBuilder.fromNonFlow(
                     nonFlowingFetcher
             )
         } else {
-            FlowStoreBuilder.from(
+            StoreBuilder.from(
                     flowingFetcher!!
             )
         }.scope(testScope)

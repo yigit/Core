@@ -10,25 +10,25 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
-object FlowStoreBuilder {
-    fun <Key, Output> fromNonFlow(
-            fetcher: suspend (key: Key) -> Output
-    ) = Builder { key: Key ->
-        flow {
-            emit(fetcher(key))
-        }
-    }
-
-    fun <Key, Output> from(
-            fetcher: (key: Key) -> Flow<Output>
-    ) = Builder(fetcher)
-}
-
 interface StoreBuilder<Key, Output> {
     fun build(): Store<Key, Output>
-    fun scope(scope: CoroutineScope) : StoreBuilder<Key, Output>
+    fun scope(scope: CoroutineScope): StoreBuilder<Key, Output>
     fun cachePolicy(memoryPolicy: MemoryPolicy?): StoreBuilder<Key, Output>
     fun disableCache(): StoreBuilder<Key, Output>
+
+    companion object {
+        fun <Key, Output> fromNonFlow(
+                fetcher: suspend (key: Key) -> Output
+        ) = Builder { key: Key ->
+            flow {
+                emit(fetcher(key))
+            }
+        }
+
+        fun <Key, Output> from(
+                fetcher: (key: Key) -> Flow<Output>
+        ) = Builder(fetcher)
+    }
 }
 
 class Builder<Key, Output>(
