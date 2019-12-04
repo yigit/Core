@@ -97,7 +97,7 @@ data class TestStoreBuilder<Key, Output>(
             )
         }
 
-        fun <Key, Output>sourceOfTruthFromLegacy(
+        internal fun <Key, Output>sourceOfTruthFromLegacy(
                 persister: Persister<Output, Key>,
                 // parser that runs after get from db
                 postParser: KeyParser<Key, Output, Output>? = null
