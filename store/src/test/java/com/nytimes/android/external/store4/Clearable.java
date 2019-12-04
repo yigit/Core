@@ -8,7 +8,7 @@ import javax.annotation.Nonnull;
  *
  * @param <T> Type of key/request param in store
  */
-@Deprecated()//used in tests
+@Deprecated//used in tests
 public interface Clearable<T> {
     void clear(@Nonnull T key);
 }
